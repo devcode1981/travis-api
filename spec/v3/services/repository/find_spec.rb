@@ -78,13 +78,19 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
       "slug"               => "svenfuchs/minimal",
       "description"        => nil,
       "github_id"          => repo.github_id,
+      "vcs_id"             => repo.vcs_id,
+      "vcs_type"           => repo.vcs_type,
+      "owner_name"         => "svenfuchs",
+      "vcs_name"           => "minimal",
       "github_language"    => nil,
       "active"             => true,
       "private"            => opts[:private],
+      "shared"             => false,
       "owner"              => {
         "id"               => repo.owner_id,
         "login"            => "svenfuchs",
         "@type"            => "user",
+        "ro_mode"          => true,
         "@href"            => "/v3/user/#{repo.owner_id}"},
       "default_branch"     => {
         "@type"            => "branch",
@@ -95,7 +101,8 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
       "active_on_org"      => nil,
       "managed_by_installation" => false,
       "migration_status"   => nil,
-      "history_migration_status" => nil
+      "history_migration_status" => nil,
+      "config_validation"  => false
     })}
   end
 
@@ -127,7 +134,7 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
     before {
       Travis::API::V3::Models::Repository.create!(
         id: 12345,
-        name: 'Minimal', 
+        name: 'Minimal',
         url: "http://github.com/svenfuchs/Minimal",
         owner_name: "svenfuchs",
         owner_email: "svenfuchs@artweb-design.de",
@@ -165,6 +172,21 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
     let(:token)   { Travis::Api::App::AccessToken.create(user: repo.owner, app_id: 1) }
     let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}" }}
     before        { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: true, admin: false) }
+  end
+
+  shared_examples 'authenticated as a user with admin permissions' do
+    let(:token)   { Travis::Api::App::AccessToken.create(user: repo.owner, app_id: 1) }
+    let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}" }}
+    before        { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: true, admin: true) }
+  end
+
+  shared_examples 'authenticated as as internal application with full access' do |opts|
+    let(:app_name)   { 'travis-example' }
+    let(:app_secret) { '12345678' }
+    let(:sign_opts)  { "a=#{app_name}" }
+    let(:signature)  { OpenSSL::HMAC.hexdigest('sha256', app_secret, sign_opts) }
+    let(:headers)    { { 'HTTP_AUTHORIZATION' => "signature #{sign_opts}:#{signature}" } }
+    before { Travis.config.applications = { app_name => { full_access: true, secret: app_secret } } }
   end
 
   shared_examples 'allows unauthenticated access to a public repo' do
@@ -349,6 +371,53 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
       "id"    => repo.owner_id,
       "login" => "svenfuchs",
     )}
+  end
+
+  describe 'representation internal' do
+    shared_examples 'responds with the internal representation' do |opts|
+      it { expect(parsed_body['@representation']).to eq 'internal' }
+      it { expect(parsed_body['token']).to eq token }
+      it { expect(parsed_body['private_key']).to include 'RSA PRIVATE KEY' }
+      it { expect(parsed_body['user_settings']['@type']).to eq 'settings' }
+    end
+
+    shared_examples 'responds with the standard representation' do |opts|
+      it { expect(parsed_body['@representation']).to eq 'standard' }
+      it { expect(parsed_body['token']).to be_nil }
+      it { expect(parsed_body['private_key']).to be_nil }
+      it { expect(parsed_body['user_settings']).to be_nil }
+    end
+
+    describe 'authenticated as internal application with full access' do
+      describe 'managed by oauth token' do
+        let(:token) { 'github_oauth_token' }
+        include_examples 'authenticated as as internal application with full access'
+        before { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: true, admin: true) }
+        before { get("/v3/repo/#{repo.id}?representation=internal", {}, headers) }
+        include_examples 'responds with the internal representation'
+      end
+
+      describe 'managed by github installation' do
+        let(:token) { 'app_token' }
+        include_examples 'authenticated as as internal application with full access'
+        before { Travis::API::V3::Models::Installation.create(owner: repo.owner, github_id: 1) }
+        before { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: true, admin: true) }
+        before { stub_request(:post, 'https://api.github.com/app/installations/1/access_tokens').to_return(status: 201, body: JSON.dump(token: 'app_token')) }
+        before { get("/v3/repo/#{repo.id}?representation=internal", {}, headers) }
+        include_examples 'responds with the internal representation'
+      end
+    end
+
+    describe 'anonymous' do
+      before { get("/v3/repo/#{repo.id}?representation=internal") }
+      include_examples 'responds with the standard representation'
+    end
+
+    describe 'authenticated as a user with admin permissions' do
+      include_examples 'authenticated as a user with admin permissions'
+      before { get("/v3/repo/#{repo.id}?representation=internal") }
+      include_examples 'responds with the standard representation'
+    end
   end
 
   describe "including full owner" do

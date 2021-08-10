@@ -17,8 +17,8 @@ describe Travis::API::V3::Services::Subscriptions::Create, set_app: true, billin
   end
 
   context 'authenticated' do
-    let(:user) { Factory(:user) }
-    let(:organization) { Factory(:org, login: 'travis') }
+    let(:user) { FactoryBot.create(:user) }
+    let(:organization) { FactoryBot.create(:org, login: 'travis') }
     let(:token) { Travis::Api::App::AccessToken.create(user: user, app_id: 1) }
     let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}",
                      'CONTENT_TYPE' => 'application/json' }}
@@ -35,6 +35,7 @@ describe Travis::API::V3::Services::Subscriptions::Create, set_app: true, billin
         'billing_info.country' => 'Germany',
         'billing_info.zip_code' => '10001',
         'billing_info.billing_email' => 'travis@example.org',
+        'billing_info.has_local_registration' => nil,
         'credit_card_info.token' => 'token_from_stripe'
       }
     end
@@ -56,6 +57,7 @@ describe Travis::API::V3::Services::Subscriptions::Create, set_app: true, billin
               'country' => 'Germany',
               'zip_code' => '10001',
               'billing_email' => 'travis@example.org',
+              'has_local_registration' => nil,
             },
             'credit_card_info' => {
               'token' => 'token_from_stripe'
@@ -71,6 +73,7 @@ describe Travis::API::V3::Services::Subscriptions::Create, set_app: true, billin
               'currency' => 'USD',
               'annual' => false
             },
+            'discount' => nil,
             'client_secret' => 'client_secret',
             'billing_info' => {
               'first_name' => 'Travis',
@@ -84,6 +87,7 @@ describe Travis::API::V3::Services::Subscriptions::Create, set_app: true, billin
               'vat_id' => nil,
               'zip_code' => '10001',
               'billing_email' => 'travis@example.org',
+              'has_local_registration' => nil
             },
             'credit_card_info' => {
               'card_owner' => 'Travis Schmidt',
@@ -102,6 +106,7 @@ describe Travis::API::V3::Services::Subscriptions::Create, set_app: true, billin
           '@permissions' => { 'read' => true, 'write' => true },
           'id' => 1234,
           'valid_to' => '2017-11-28T00:09:59Z',
+          'created_at' => '2017-11-28T00:09:59.502Z',
           'plan' => {
             '@type' => 'plan',
             '@representation' => 'standard',
@@ -124,6 +129,7 @@ describe Travis::API::V3::Services::Subscriptions::Create, set_app: true, billin
             'last_name' => 'Schmidt',
             'company' => 'Travis',
             'billing_email' => 'travis@example.org',
+            'has_local_registration' => nil,
             'zip_code' => '10001',
             'address' => 'Rigaer Strasse',
             'address2' => nil,
@@ -145,8 +151,13 @@ describe Travis::API::V3::Services::Subscriptions::Create, set_app: true, billin
             '@representation' => 'minimal',
             '@href' => "/v3/org/#{organization.id}",
             'id' => organization.id,
-            'login' => 'travis'
-          }
+            'vcs_type' => organization.vcs_type,
+            'login' => 'travis',
+            'name' => organization.name,
+            'ro_mode' => true
+          },
+          'payment_intent' => nil,
+          'discount' => nil
         })
         expect(stubbed_request).to have_been_made.once
       end

@@ -3,6 +3,9 @@ module Travis::API::V3
   end
 
   class Models::Build < Model
+
+    HIGH_PRIORITY = 5
+    
     belongs_to :commit
     belongs_to :tag
     belongs_to :pull_request
@@ -29,6 +32,8 @@ module Travis::API::V3
       foreign_key: [:repository_id, :name],
       primary_key: [:repository_id, :branch],
       class_name:  'Travis::API::V3::Models::Branch'.freeze
+
+    scope :running_builds, -> { where.not(state: ['passed', 'failed', 'errored', 'cancelled']) }
 
     def created_by
       return unless sender
@@ -68,7 +73,11 @@ module Travis::API::V3
     end
 
     def config
-      config = super&.config || has_attribute?(:config) && read_attribute(:config) || {}
+      record = super
+      config = record&.config_json if record.respond_to?(:config_json)
+      config ||= record&.config
+      config ||= read_attribute(:config) if has_attribute?(:config)
+      config ||= {}
       config.deep_symbolize_keys! if config.respond_to?(:deep_symbolize_keys!)
       config
     end
@@ -83,6 +92,10 @@ module Travis::API::V3
 
     def log_complete
       jobs.all?(&:log_complete)
+    end
+
+    def high_priority?
+      jobs.where(priority: HIGH_PRIORITY).present?
     end
   end
 end

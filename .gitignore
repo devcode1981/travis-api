@@ -14,3 +14,8 @@ log/
 .coverage
 *.env
 .ruby-gemset
+
+#IDEs
+.idea
+
+.history

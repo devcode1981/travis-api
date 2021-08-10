@@ -51,18 +51,24 @@ describe Travis::API::V3::Services::Repositories::ForCurrentUser, set_app: true 
           "delete_key_pair"  => true,
           "admin"            => true
         },
-        "id"                 =>  repo.id,
-        "name"               =>  "minimal",
-        "slug"               =>  "svenfuchs/minimal",
+        "id"                 => repo.id,
+        "name"               => "minimal",
+        "slug"               => "svenfuchs/minimal",
         "description"        => nil,
         "github_id"          => repo.github_id,
+        "vcs_id"             => repo.vcs_id,
+        "vcs_type"           => repo.vcs_type,
+        "owner_name"         => "svenfuchs",
+        "vcs_name"           => "minimal",
         "github_language"    => nil,
         "active"             => true,
         "private"            => true,
+        "shared"             => false,
         "owner"              => {
           "@type"            => "user",
           "@href"            => "/v3/user/#{repo.owner_id}",
           "id"               => repo.owner_id,
+          "ro_mode"          => true,
           "login"            => "svenfuchs" },
         "default_branch"     => {
           "@type"            => "branch",
@@ -73,7 +79,8 @@ describe Travis::API::V3::Services::Repositories::ForCurrentUser, set_app: true 
         "managed_by_installation"=>false,
         "active_on_org"=>nil,
         "migration_status" => nil,
-        "history_migration_status" => nil
+        "history_migration_status" => nil,
+        "config_validation" => false
         }]
     }}
   end

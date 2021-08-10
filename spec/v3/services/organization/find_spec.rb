@@ -18,9 +18,17 @@ describe Travis::API::V3::Services::Organization::Find, set_app: true do
       "login"            => "example-org",
       "name"             => nil,
       "github_id"        => nil,
+      "vcs_id"           => org.vcs_id,
+      "vcs_type"         => org.vcs_type,
       "avatar_url"       => nil,
       "education"        => false,
       "allow_migration"  => false,
+      "ro_mode"          => true,
+      "allowance"        => {
+        "@type"             => "allowance",
+        "@representation"   => "minimal",
+        "id"                => org.id
+      }
     }}
   end
 
@@ -30,8 +38,8 @@ describe Travis::API::V3::Services::Organization::Find, set_app: true do
     before  do
       org.memberships.create(user: user)
       org.save!
-      Travis::Features.stubs(:owner_active?).returns(true)
-      Travis::Features.stubs(:owner_active?).with(:educational_org, org).returns(true)
+      allow(Travis::Features).to receive(:owner_active?).and_return(true)
+      allow(Travis::Features).to receive(:owner_active?).with(:educational_org, org).and_return(true)
       Travis.config.public_mode = false
     end
     before  { get("/v3/org/#{org.id}", {}, headers) }
@@ -45,9 +53,17 @@ describe Travis::API::V3::Services::Organization::Find, set_app: true do
       "login"            => "example-org",
       "name"             => nil,
       "github_id"        => nil,
+      "vcs_id"           => org.vcs_id,
+      "vcs_type"         => org.vcs_type,
       "avatar_url"       => nil,
       "education"        => true,
       "allow_migration"  => true,
+      "ro_mode"          => false,
+      "allowance"        => {
+        "@type"             => "allowance",
+        "@representation"   => "minimal",
+        "id"                => org.id
+      }
     }}
   end
 

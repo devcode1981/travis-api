@@ -32,7 +32,7 @@ module Travis
         end
 
         def branch
-          s3_object.key[%r{^\d+/(.*)/[^/]+$}, 1]
+          s3_object.key[%r{^(.*)/(.*)/[^/]+$}, 2]
         end
 
         def destroy
@@ -76,7 +76,7 @@ module Travis
         end
 
         def branch
-          cache_object.name[%r{^\d+/(.*)/[^/]+$}, 1]
+          cache_object.name[%r{^(.*)/(.*)/[^/]+$}, 2]
         end
 
         def destroy
@@ -124,7 +124,7 @@ module Travis
         end
 
         def prefix
-          prefix = "#{repo.github_id}/"
+          prefix = "#{repo.vcs_id || repo.github_id}/"
           prefix << branch << '/' if branch
           prefix
         end

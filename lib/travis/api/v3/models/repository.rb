@@ -1,3 +1,5 @@
+require 'travis/github_apps'
+
 module Travis::API::V3
   class Models::Repository < Model
     has_many :commits,     dependent: :delete_all
@@ -29,12 +31,21 @@ module Travis::API::V3
       self.class.column_names.include?('migrating') && super
     end
 
+    def github?
+      vcs_type == 'GithubRepository'
+    end
+
     def migrated_at
       self.class.column_names.include?('migrated_at') && super
     end
 
     def slug
-      @slug ||= "#{owner_name}/#{name}"
+      @slug ||= vcs_slug || "#{owner_name}/#{name}"
+    end
+
+    def vcs_name
+      return vcs_slug.split('/')[1] if vcs_slug && vcs_slug.split('/')[1]
+      name
     end
 
     def default_branch_name
@@ -112,11 +123,15 @@ module Travis::API::V3
     end
 
     def user_settings
-      Models::UserSettings.new(settings).tap { |us| us.sync(self, :settings) }
+      Models::UserSettings.new(self, settings).tap { |us| us.sync(self, :settings) }
     end
 
     def admin_settings
       Models::AdminSettings.new(settings).tap { |as| as.sync(self, :settings) }
+    end
+
+    def config_validation
+      !!user_settings[:config_validation]
     end
 
     def env_vars
@@ -131,6 +146,35 @@ module Travis::API::V3
       Models::KeyPair.load(settings['ssh_key'], repository_id: id).tap do |kp|
         kp.sync(self, :settings)
       end
+    end
+
+    def private_key
+      key&.private_key
+    end
+
+    def token
+      installation ? app_token : admin&.github_oauth_token
+    end
+
+    def app_token
+      github_apps.access_token
+    end
+
+    def github_apps
+      Travis::GithubApps.new(
+        installation.github_id,
+        apps_id: Travis.config[:github_apps][:id],
+        private_pem: Travis.config[:github_apps][:private_pem],
+        redis: Travis.config[:redis].to_h,
+      )
+    end
+
+    def installation?
+      !!installation
+    end
+
+    def installation
+      owner&.installation
     end
 
     def debug_tools_enabled?

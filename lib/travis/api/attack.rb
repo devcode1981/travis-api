@@ -1,5 +1,5 @@
 require 'rack/attack'
-require 'netaddr'
+require 'ipaddress'
 require 'metriks'
 
 ActiveSupport::Notifications.subscribe('rack.attack') do |name, start, finish, request_id, req|
@@ -44,8 +44,8 @@ class Rack::Attack
   ]
 
   GITHUB_CIDRS = [
-    NetAddr::CIDR.create('192.30.252.0/22'),
-    NetAddr::CIDR.create('185.199.108.0/22'),
+    IPAddress.parse('192.30.252.0/22'),
+    IPAddress.parse('185.199.108.0/22'),
   ]
 
   safelist('build_status_image') do |request|
@@ -54,7 +54,9 @@ class Rack::Attack
 
   # https://help.github.com/articles/github-s-ip-addresses/
   safelist('github_request_ip') do |request|
-    request.ip && NetAddr::CIDR.create(request.ip).version == 4 && GITHUB_CIDRS.any? { |block| block.contains?(request.ip) }
+    request.ip && IPAddress(request.ip).ipv4? && GITHUB_CIDRS.any? { |block|
+      block.include?(IPAddress(request.ip))
+    }
   end
 
   ####
@@ -86,9 +88,9 @@ class Rack::Attack
   ####
   # Ban based on: IP address or access token
   # Ban time:     1 hour
-  # Ban after:    10 POST requests within 30 seconds
+  # Ban after:    50 POST requests within 30 seconds
   blocklist('spamming_post_requests') do |request|
-    Rack::Attack::Allow2Ban.filter(request.identifier, maxretry: 10, findtime: 30.seconds, bantime: bantime(1.hour)) do
+    Rack::Attack::Allow2Ban.filter(request.identifier, maxretry: 50, findtime: 30.seconds, bantime: bantime(1.hour)) do
       request.post? and not POST_SAFELIST.include? request.path
     end
   end
@@ -122,6 +124,13 @@ class Rack::Attack
   # Scoped by: access token
   throttle('req_token_1min', limit: 2000, period: 1.minute) do |request|
     request.identifier
+  end
+
+  ###
+  # Throttle:  authenticated requests for /coupons/ - 20 per day
+  # Scoped by: access token
+  throttle('req_coupons_1day', limit: 20, period: 1.day) do |request|
+    request.identifier if request.path.start_with?('/coupons/')
   end
 
   if ENV["MEMCACHIER_SERVERS"]

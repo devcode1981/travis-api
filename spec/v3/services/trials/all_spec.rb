@@ -1,4 +1,4 @@
-describe Travis::API::V3::Services::Subscription::Invoices, set_app: true, billing_spec_helper: true do
+describe Travis::API::V3::Services::Trials::All, set_app: true, billing_spec_helper: true do
   let(:parsed_body) { JSON.load(last_response.body) }
   let(:billing_url) { 'http://billingfake.travis-ci.com' }
   let(:billing_auth_key) { 'secret' }
@@ -17,8 +17,8 @@ describe Travis::API::V3::Services::Subscription::Invoices, set_app: true, billi
   end
 
   context 'authenticated' do
-    let(:user) { Factory(:user) }
-    let(:organization) { Factory(:org, login: 'travis') }
+    let(:user) { FactoryBot.create(:user) }
+    let(:organization) { FactoryBot.create(:org, login: 'travis') }
     let(:token) { Travis::Api::App::AccessToken.create(user: user, app_id: 1) }
     let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}" }}
     let(:created_at) { '2018-04-17T18:30:32Z' }
@@ -48,7 +48,10 @@ describe Travis::API::V3::Services::Subscription::Invoices, set_app: true, billi
             '@href' => "/v3/user/#{user.id}",
             '@representation' => 'minimal',
             'id' => user.id,
-            'login' => 'svenfuchs'
+            'login' => 'svenfuchs',
+            'vcs_type' => 'GithubUser',
+            'name' => user.name,
+            'ro_mode' => true
           },
           'created_at' => created_at,
           'status' => 'started',

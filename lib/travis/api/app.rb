@@ -10,7 +10,7 @@ require 'rack'
 require 'rack/protection'
 require 'rack/contrib/config'
 require 'rack/contrib/jsonp'
-require 'rack/contrib/post_body_content_type_parser'
+require 'rack/contrib/json_body_parser'
 require 'dalli'
 require 'memcachier'
 require 'rack/cache'
@@ -136,7 +136,7 @@ module Travis::Api
           use Travis::Api::App::Middleware::OpenCensus
         end
 
-        use Rack::SSL if Endpoint.production?
+        use Rack::SSL if Endpoint.production? && !ENV['DOCKER']
         use ActiveRecord::ConnectionAdapters::ConnectionManagement
         use ActiveRecord::QueryCache
 
@@ -148,7 +148,7 @@ module Travis::Api
         end
 
         use Rack::Deflater
-        use Rack::PostBodyContentTypeParser
+        use Rack::JSONBodyParser
         use Rack::JSONP
 
         use Rack::Config do |env|
@@ -161,7 +161,7 @@ module Travis::Api
         use Travis::Api::App::Middleware::UserAgentTracker
 
         # make sure this is below ScopeCheck so we have the token
-        use Rack::Attack if Endpoint.production? and not Travis.config.enterprise
+        use Rack::Attack unless Endpoint.development? || Endpoint.test? || Travis.config.enterprise
 
         # if this is a v3 API request, ignore everything after
         use Travis::API::V3::OptIn
@@ -283,7 +283,6 @@ module Travis::Api
 
         Travis::LogSubscriber::ActiveRecordMetrics.attach
         Travis::Notification.setup(instrumentation: false)
-        Travis::Metrics.setup
       end
 
       def self.setup_endpoints

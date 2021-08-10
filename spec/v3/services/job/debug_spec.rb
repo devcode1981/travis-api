@@ -1,5 +1,5 @@
 describe Travis::API::V3::Services::Job::Debug, set_app: true do
-  let(:repo) { Factory(:repository, owner_name: 'svenfuchs', name: 'minimal') }
+  let(:repo) { FactoryBot.create(:repository, owner_name: 'svenfuchs', name: 'minimal') }
   let(:owner_type)  { repo.owner_type.constantize }
   let(:owner)       { owner_type.find(repo.owner_id)}
   let(:build)       { repo.builds.last }
@@ -9,14 +9,22 @@ describe Travis::API::V3::Services::Job::Debug, set_app: true do
   before { ActiveRecord::Base.connection.execute("truncate requests cascade") }
 
   before do
-    Travis::Features.stubs(:owner_active?).returns(true)
+    Travis.config.billing.url = 'http://localhost:9292/'
+    Travis.config.billing.auth_key = 'secret'
+    allow(Travis::Features).to receive(:owner_active?).and_return(true)
     @original_sidekiq = Sidekiq::Client
     Sidekiq.send(:remove_const, :Client) # to avoid a warning
     Sidekiq::Client = []
     Travis::Features.activate_repository(:debug_tools, job.repository)
+
+    stub_request(:post, /http:\/\/localhost:9292\/(users|organizations)\/(.+)\/authorize_build/).to_return(
+      body: MultiJson.dump(allowed: true, rejection_code: nil)
+    )
   end
 
   after do
+    Travis.config.billing.url = nil
+    Travis.config.billing.auth_key = nil
     Sidekiq.send(:remove_const, :Client) # to avoid a warning
     Sidekiq::Client = @original_sidekiq
   end

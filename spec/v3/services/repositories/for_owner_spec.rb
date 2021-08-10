@@ -1,15 +1,22 @@
-describe Travis::API::V3::Services::Repositories::ForOwner, set_app: true do
+describe Travis::API::V3::Services::Repositories::ForOwner, set_app: true, billing_spec_helper: true do
   include Support::Formats
   let(:repo)  { Travis::API::V3::Models::Repository.where(owner_name: 'svenfuchs', name: 'minimal').first }
+  let(:sharedrepo)  { Travis::API::V3::Models::Repository.where(owner_name: 'sharedrepoowner', name: 'sharedrepo').first }
   let(:build) { repo.builds.first }
   let(:jobs)  { Travis::API::V3::Models::Build.find(build.id).jobs }
+  let(:billing_url) { 'http://billingfake.travis-ci.com' }
+  let(:billing_auth_key) { 'secret' }
 
   let(:token)   { Travis::Api::App::AccessToken.create(user: repo.owner, app_id: 1) }
   let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}"                        }}
+
+  let(:token_collaborator)   { Travis::Api::App::AccessToken.create(user: Travis::API::V3::Models::User.find_by_login('johndoe'), app_id: 1) }
+  let(:headers_collaborator) {{ 'HTTP_AUTHORIZATION' => "token #{token_collaborator}"                        }}
   before        { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: true) }
   before        { repo.update_attribute(:private, true)                             }
   before        { repo.update_attribute(:current_build, build)                             }
   after         { repo.update_attribute(:private, false)                            }
+  before        { RSpec::Support::ObjectFormatter.default_instance.max_formatted_output_length = 1024*1024 }
 
   describe "sorting by default_branch.last_build" do
     let!(:repo2) { Travis::API::V3::Models::Repository.create!(owner_name: 'svenfuchs', owner: repo.owner, name: 'second-repo', default_branch_name: 'other-branch') }
@@ -76,13 +83,19 @@ describe Travis::API::V3::Services::Repositories::ForOwner, set_app: true do
         "slug"               => "svenfuchs/minimal",
         "description"        => nil,
         "github_id"          => repo.github_id,
+        "vcs_id"             => repo.vcs_id,
+        "vcs_type"           => repo.vcs_type,
+        "owner_name"         => "svenfuchs",
+        "vcs_name"           => "minimal",
         "github_language"    => nil,
         "active"             => true,
         "private"            => true,
+        "shared"             => false,
         "owner"              => {
           "@type"            => "user",
           "id"               => repo.owner_id,
           "login"            => "svenfuchs",
+          "ro_mode"          => true,
           "@href"            => "/v3/user/#{repo.owner_id}" },
         "default_branch"     => {
           "@type"            => "branch",
@@ -93,7 +106,8 @@ describe Travis::API::V3::Services::Repositories::ForOwner, set_app: true do
           "managed_by_installation"=>false,
           "active_on_org"    => nil,
           "migration_status" => nil,
-          "history_migration_status"  => nil
+          "history_migration_status"  => nil,
+          "config_validation" => false
         }]}}
   end
 
@@ -123,13 +137,19 @@ describe Travis::API::V3::Services::Repositories::ForOwner, set_app: true do
         "slug"               =>"svenfuchs/minimal",
         "description"        =>nil,
         "github_id"          =>repo.github_id,
+        "vcs_id"             => repo.vcs_id,
+        "vcs_type"           => repo.vcs_type,
+        "owner_name"         => "svenfuchs",
+        "vcs_name"           => "minimal",
         "github_language"    =>nil,
         "active"             =>true,
         "private"            =>true,
+        "shared"             =>false,
         "owner"              =>{
           "@type"            =>"user",
           "id"               =>1,
           "login"            =>"svenfuchs",
+          "ro_mode"          => true,
           "@href"            =>"/v3/user/1"},
         "default_branch"     =>{
           "@type"            =>"branch",
@@ -141,6 +161,7 @@ describe Travis::API::V3::Services::Repositories::ForOwner, set_app: true do
         "active_on_org"     => nil,
         "migration_status"  => nil,
         "history_migration_status"  => nil,
+        "config_validation" => false,
         "last_started_build"=>{
           "@type"          =>"build",
           "@href"          =>"/v3/build/#{build.id}",
@@ -148,7 +169,8 @@ describe Travis::API::V3::Services::Repositories::ForOwner, set_app: true do
           "@permissions"   =>{
             "read"         =>true,
             "cancel"       =>true,
-            "restart"      =>true},
+            "restart"      =>true,
+            "prioritize"   =>false},
           "id"             =>build.id,
           "number"         =>"#{build.number}",
           "state"          =>"configured",
@@ -160,6 +182,7 @@ describe Travis::API::V3::Services::Repositories::ForOwner, set_app: true do
           "started_at"     =>"2010-11-12T13:00:00Z",
           "finished_at"    =>nil,
           "private"        => false,
+          "priority"       => false,
           "repository"    =>{
             "@href"       =>"/v3/repo/#{repo.id}"},
           "branch"        =>{
@@ -230,13 +253,19 @@ describe Travis::API::V3::Services::Repositories::ForOwner, set_app: true do
         "slug"               => "svenfuchs/minimal",
         "description"        => nil,
         "github_id"          => repo.github_id,
+        "vcs_id"             => repo.vcs_id,
+        "vcs_type"           => repo.vcs_type,
+        "owner_name"         => "svenfuchs",
+        "vcs_name"           => "minimal",
         "github_language"    => nil,
         "active"             => true,
         "private"            => true,
+        "shared"             => false,
         "owner"              => {
           "@type"            => "user",
           "id"               => 1,
           "login"            => "svenfuchs",
+          "ro_mode"          => true,
           "@href"            => "/v3/user/1"},
         "default_branch"     => {
           "@type"            => "branch",
@@ -248,6 +277,7 @@ describe Travis::API::V3::Services::Repositories::ForOwner, set_app: true do
         "active_on_org"    => nil,
         "migration_status" => nil,
         "history_migration_status"  => nil,
+        "config_validation" => false,
         "current_build" => {
           "@type"               => "build",
           "@href"               => "/v3/build/#{build.id}",
@@ -255,7 +285,8 @@ describe Travis::API::V3::Services::Repositories::ForOwner, set_app: true do
           "@permissions"        => {
             "read"    => true,
             "cancel"  => true,
-            "restart" => true
+            "restart" => true,
+            "prioritize"=> false
           },
           "id"                  => build.id,
           "number"              => "#{build.number}",
@@ -268,6 +299,7 @@ describe Travis::API::V3::Services::Repositories::ForOwner, set_app: true do
           "started_at"     => "2010-11-12T13:00:00Z",
           "finished_at"    => nil,
           "private"        => false,
+          "priority"       => false,
           "repository"     => {
             "@href"       => "/v3/repo/#{repo.id}"
           },
@@ -383,6 +415,10 @@ describe Travis::API::V3::Services::Repositories::ForOwner, set_app: true do
         "slug"            => "svenfuchs/minimal",
         "description"     => nil,
         "github_id"       => repo.github_id,
+        "vcs_id"          => repo.vcs_id,
+        "vcs_type"        => repo.vcs_type,
+        "owner_name"      => "svenfuchs",
+        "vcs_name"        => "minimal",
         "github_language" => nil,
         "active"          => true,
         "private"         => true,
@@ -390,6 +426,7 @@ describe Travis::API::V3::Services::Repositories::ForOwner, set_app: true do
           "@type"         => "user",
           "id"            => 1,
           "login"         => "svenfuchs",
+          "ro_mode"       => true,
           "@href"         => "/v3/user/1" },
         "default_branch"  => {
           "@type"         => "branch",
@@ -397,10 +434,12 @@ describe Travis::API::V3::Services::Repositories::ForOwner, set_app: true do
           "@representation"=>"minimal",
           "name"          => "master" },
         "starred"         => false,
+        "shared"          => false,
         "managed_by_installation"=>false,
         "active_on_org"   => nil,
         "migration_status" => nil,
-        "history_migration_status"  => nil}, {
+        "history_migration_status"  => nil,
+        "config_validation" => false}, {
         "@type"           => "repository",
         "@href"           => "/v3/repo/#{repo2.id}",
         "@representation" => "standard",
@@ -423,13 +462,19 @@ describe Travis::API::V3::Services::Repositories::ForOwner, set_app: true do
         "slug"            => "svenfuchs/maximal",
         "description"     => nil,
         "github_id"       => repo2.github_id,
+        "vcs_id"          => repo2.vcs_id,
+        "vcs_type"        => repo2.vcs_type,
+        "owner_name"      => "svenfuchs",
+        "vcs_name"        => "maximal",
         "github_language" => nil,
         "active"          => true,
         "private"         => false,
+        "shared"          => false,
         "owner"           => {
           "@type"         => "user",
           "id"            => 1,
           "login"         => "svenfuchs",
+          "ro_mode"       => true,
           "@href"         => "/v3/user/1" },
         "default_branch"  => {
           "@type"         => "branch",
@@ -440,6 +485,137 @@ describe Travis::API::V3::Services::Repositories::ForOwner, set_app: true do
           "managed_by_installation"=>false,
           "active_on_org"  =>nil,
           "migration_status" => nil,
-          "history_migration_status" => nil}]}
+          "history_migration_status" => nil,
+          "config_validation" => false}]}
+  end
+
+  describe "shared repository for collaborator, authenticated as user with access" do
+    before  { get("/v3/owner/johndoe/repos", {}, headers_collaborator) }
+    example { expect(last_response).to be_ok }
+    example { expect(JSON.load(body)).to be == {
+      "@type"                => "repositories",
+      "@href"                => "/v3/owner/johndoe/repos",
+      "@representation"      => "standard",
+      "@pagination"          => {
+        "limit"              => 100,
+        "offset"             => 0,
+        "count"              => 1,
+        "is_first"           => true,
+        "is_last"            => true,
+        "next"               => nil,
+        "prev"               => nil,
+        "first"              => {
+          "@href"            => "/v3/owner/johndoe/repos",
+          "offset"           => 0,
+          "limit"            => 100},
+          "last"             => {
+            "@href"          => "/v3/owner/johndoe/repos",
+            "offset"         => 0,
+            "limit"          => 100}},
+      "repositories"         => [{
+        "@type"              => "repository",
+        "@href"              => "/v3/repo/#{sharedrepo.id}",
+        "@representation"    => "standard",
+        "@permissions"       => {
+          "read"             => true,
+          "activate"         => true,
+          "deactivate"       => true,
+          "migrate"          => false,
+          "star"             => true,
+          "unstar"           => true,
+          "create_request"   => true,
+          "create_cron"      => true,
+          "create_env_var"   => true,
+          "create_key_pair"  => true,
+          "delete_key_pair"  => true,
+          "admin"            => false
+        },
+        "id"                 => sharedrepo.id,
+        "name"               => "sharedrepo",
+        "slug"               => "sharedrepoowner/sharedrepo",
+        "description"        => nil,
+        "github_id"          => sharedrepo.github_id,
+        "vcs_id"             => sharedrepo.vcs_id,
+        "vcs_type"           => sharedrepo.vcs_type,
+        "owner_name"         => "sharedrepoowner",
+        "vcs_name"           => "sharedrepo",
+        "github_language"    => nil,
+        "active"             => true,
+        "private"            => false,
+        "shared"             => true,
+        "owner"              => {
+          "@type"            => "user",
+          "id"               => sharedrepo.owner_id,
+          "ro_mode"          => true,
+          "login"            => "sharedrepoowner",
+          "@href"            => "/v3/user/#{sharedrepo.owner_id}" },
+        "default_branch"     => {
+          "@type"            => "branch",
+          "@href"            => "/v3/repo/#{sharedrepo.id}/branch/master",
+          "@representation"  => "minimal",
+          "name"             => "master"},
+          "starred"          => false,
+          "managed_by_installation"=>false,
+          "active_on_org"    => nil,
+          "migration_status" => nil,
+          "history_migration_status"  => nil,
+          "config_validation" => false
+        }]}}
+  end
+
+  describe "allowance, org" do
+    before  { get("/v3/owner/svenfuchs/allowance", {}, headers) }
+    example { expect(last_response).to be_ok }
+    example { expect(JSON.load(body)).to be == {
+      "@representation"       => "standard",
+      "@type"                 => "allowance",
+      "concurrency_limit"     => 1,
+      "private_repos"         => false,
+      "public_repos"          => true,
+      "subscription_type"     => 1,
+      "user_usage"            => false,
+      "pending_user_licenses" => false,
+      "id"                    => 0
+    }}
+  end
+
+  describe "allowance, com" do
+    before do
+      Travis.config.host = 'travis-ci.com'
+      Travis.config.billing.url = billing_url
+      Travis.config.billing.auth_key = billing_auth_key
+      stub_billing_request(:get, "/usage/users/1/allowance", auth_key: billing_auth_key, user_id: 1)
+        .to_return(body: JSON.dump({ 'public_repos': true, 'private_repos': true, 'user_usage': true, 'pending_user_licenses': false, 'concurrency_limit': 666 }))
+      get("/v3/owner/svenfuchs/allowance", {}, headers)
+    end
+    example { expect(last_response).to be_ok }
+    example { expect(JSON.load(body)).to be == {
+      "@representation"       => "standard",
+      "@type"                 => "allowance",
+      "concurrency_limit"     => 666,
+      "private_repos"         => true,
+      "public_repos"          => true,
+      "subscription_type"     => 2,
+      "user_usage"            => true,
+      "pending_user_licenses" => false,
+      "id"                    => 1
+    }}
+  end
+
+  describe "allowance with bad owner, com" do
+    before do
+      Travis.config.host = 'travis-ci.com'
+      Travis.config.billing.url = billing_url
+      Travis.config.billing.auth_key = billing_auth_key
+      get("/v3/owner/another/allowance", {}, headers)
+    end
+    example { expect(last_response.status).to eq(404) }
+    example do
+      expect(JSON.load(body)).to eq(
+        '@type' => 'error',
+        'error_type' => 'not_found',
+        'error_message' => 'resource not found (or insufficient access)'
+      )
+    end
   end
 end

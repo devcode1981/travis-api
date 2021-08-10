@@ -24,47 +24,47 @@ module Travis
 
         private
 
-          def keys
-            @keys ||= authenticated do
-              GH[keys_path]
-            end
-          end
+        def keys
+          @keys ||= remote_vcs_repository.keys(
+            repository_id: repo.id,
+            user_id: current_user.id
+          )
+        end
 
-          def key
-            keys.detect { |e| e['key'] == repo.key.encoded_public_key }
-          end
+        def key
+          keys.detect { |e| e['key'] == repo.key.encoded_public_key }
+        end
 
-          def set_key
-            authenticated do
-              GH.post keys_path, {
-                title: Travis.config.host.to_s,
-                key: repo.key.encoded_public_key,
-                read_only: !Travis::Features.owner_active?(:read_write_github_keys, repo.owner)
-              }
-            end
-          end
+        def set_key
+          remote_vcs_repository.upload_key(
+            repository_id: repo.id,
+            user_id: current_user.id,
+            read_only: !Travis::Features.owner_active?(:read_write_github_keys, repo.owner)
+          )
+        end
 
-          def delete_key
-            authenticated do
-              GH.delete "#{keys_path}/#{key['id']}" #key['_links']['self']['href']
-              @keys = []
-            end
-          end
+        def delete_key
+          remote_vcs_repository.delete_key(
+            repository_id: repo.id,
+            user_id: current_user.id,
+            id: key['id']
+          )
+        end
 
-          def keys_path
-            "repos/#{repo.slug}/keys"
-          end
+        def keys_path
+          "repos/#{repo.slug}/keys"
+        end
 
-          def authenticated(&block)
-            Travis::Github.authenticated(current_user, &block)
-          end
+        def authenticated(&block)
+          Travis::Github.authenticated(current_user, &block)
+        end
 
-          class Instrument < Notification::Instrument
-            def run_completed
-              publish(:msg => "for #{target.repo.slug}", :result => result)
-            end
+        class Instrument < Notification::Instrument
+          def run_completed
+            publish(:msg => "for #{target.repo.slug}", :result => result)
           end
-          Instrument.attach_to(self)
+        end
+        Instrument.attach_to(self)
       end
     end
   end

@@ -18,7 +18,7 @@ describe Travis::API::V3::Services::Organizations::ForCurrentUser, set_app: true
       another_org.memberships.create(user: repo.owner, role: 'member')
 
       get("/v3/orgs", {role: 'admin'}, headers)
-      JSON.load(body)['organizations'].map { |o| o['id'] }.should == [org.id]
+      expect(JSON.load(body)['organizations'].map { |o| o['id'] }).to eq([org.id])
     end
   end
 
@@ -54,9 +54,17 @@ describe Travis::API::V3::Services::Organizations::ForCurrentUser, set_app: true
         "login"           => "example-org",
         "name"            => nil,
         "github_id"       => nil,
+        "vcs_id"          => org.vcs_id,
+        "vcs_type"        => org.vcs_type,
         "avatar_url"      => nil,
         "education"       => false,
         "allow_migration" => false,
+        "ro_mode"         => true,
+        "allowance" => {
+          "@type"             => "allowance",
+          "@representation"   => "minimal",
+          "id"                => org.id
+        }
       }]
     }}
   end

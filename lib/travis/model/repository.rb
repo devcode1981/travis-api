@@ -40,7 +40,11 @@ class Repository < Travis::Model
     if id = params[:repository_id] || params[:id]
       where(id: id)
     elsif params[:github_id]
-      where(github_id: params[:github_id])
+      where('vcs_id = :id OR github_id = :id_i', id: params[:github_id].to_s, id_i: params[:github_id].to_i)
+    elsif params[:vcs_id] && params['vcs_type']
+      where(vcs_id: params[:vcs_id], vcs_type: params['vcs_type'])
+    elsif params[:vcs_id]
+      where(vcs_id: params[:vcs_id])
     elsif params.key?(:slug)
       by_slug(params[:slug])
     elsif params.key?(:name) && params.key?(:owner_name)
@@ -70,8 +74,9 @@ class Repository < Travis::Model
   scope :by_slug, ->(slug) {
     owner_name, repo_name = slug.split('/')
     without_invalidated.where(
-      "LOWER(repositories.owner_name) = ? AND LOWER(repositories.name) = ?", owner_name.downcase, repo_name.downcase
-    ).order('id DESC')
+      "(LOWER(repositories.owner_name) = ? AND LOWER(repositories.name) = ?) OR LOWER(vcs_slug) = ?",
+      owner_name.downcase, repo_name.downcase, "#{slug.downcase}"
+    ).order('id DESC, owner_name ASC, name ASC, vcs_slug ASC')
   }
   scope :search, ->(query) {
     query = query.gsub('\\', '/')
@@ -102,7 +107,11 @@ class Repository < Travis::Model
   end
 
   def slug
-    @slug ||= [owner_name, name].join('/')
+    @slug ||= [owner_name, name_from_vcs_slug].join('/')
+  end
+
+  def name_from_vcs_slug
+    vcs_slug.present? ? vcs_slug.split('/')[1] : name
   end
 
   def api_url
@@ -213,5 +222,9 @@ class Repository < Travis::Model
 
   def migrated?
     migration_status == 'migrated'
+  end
+
+  def github?
+    vcs_type == 'GithubRepository'
   end
 end

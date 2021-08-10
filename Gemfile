@@ -1,6 +1,6 @@
 source 'https://rubygems.org'
 
-ruby '2.5.1'
+ruby '2.6.5'
 
 gem 's3',              git: 'https://github.com/travis-ci/s3'
 
@@ -11,9 +11,9 @@ gem 'travis-amqp',     git: 'https://github.com/travis-ci/travis-amqp'
 gem 'travis-config',   git: 'https://github.com/travis-ci/travis-config', branch: 'fix-docker-redis-url'
 gem 'travis-settings', git: 'https://github.com/travis-ci/travis-settings'
 gem 'travis-lock',     git: 'https://github.com/travis-ci/travis-lock'
-gem 'travis-rollout',  git: 'https://github.com/travis-ci/travis-rollout', branch: 'sf-refactor'
+gem 'travis-github_apps', git: 'https://github.com/travis-ci/travis-github_apps'
+gem 'travis-rollout',  '~> 0.0.2'
 
-gem 'travis-yaml',     git: 'https://github.com/travis-ci/travis-yaml'
 gem 'mustermann'
 gem 'sinatra'
 gem 'sinatra-contrib', require: nil #git: 'https://github.com/sinatra/sinatra-contrib', require: nil
@@ -22,11 +22,12 @@ gem 'simple_states',   '1.0.2'
 
 gem 'active_model_serializers'
 gem 'unicorn'
-gem 'sentry-raven'
+gem 'sentry-raven', '~> 2.11.3'
 gem 'yard-sinatra',    git: 'https://github.com/rkh/yard-sinatra'
+gem 'rack', '>= 2.1.4'
 gem 'rack-contrib'
 gem 'rack-cache',      git: 'https://github.com/rtomayko/rack-cache'
-gem 'rack-attack', '5.0.0.beta1'
+gem 'rack-attack', '~> 5.0'
 gem 'gh', git: 'https://github.com/travis-ci/gh'
 gem 'bunny',           '~> 2.9.2'
 gem 'dalli'
@@ -36,7 +37,7 @@ gem 'metriks-librato_metrics', git: 'https://github.com/eric/metriks-librato_met
 gem 'librato-metrics'
 gem 'simplecov'
 gem 'stackprof'
-gem 'netaddr'
+gem "ipaddress", "~> 0.8.3"
 gem 'nakayoshi_fork'
 gem 'sidekiq'
 gem 'redis-namespace'
@@ -46,10 +47,8 @@ gem 'rbtrace'
 gem 'memory_profiler'
 gem 'allocation_tracer'
 
-gem 'jemalloc', git: 'https://github.com/travis-ci/jemalloc-rb'
-
 gem 'redlock'
-gem 'rake', '~> 0.9.2'
+gem 'rake', '~> 12.3.3'
 
 gem 'libhoney'
 gem 'opencensus'
@@ -78,17 +77,19 @@ gem 'redis',             '~> 3.0'
 gem 'hashr'
 gem 'pusher',            '~> 0.14.0'
 gem 'multi_json'
+gem 'closeio',           '~> 3.5'
 
 group :test do
-  gem 'rspec',         '~> 2.13'
+  gem 'rspec'
   gem 'rspec-its'
-  gem 'factory_girl',  '~> 2.4.0'
-  gem 'mocha',         '~> 0.12'
-  gem 'database_cleaner', '~> 1.7'
-  gem 'timecop',       '~> 0.8.0'
+  gem 'factory_bot'
+  gem 'mocha'
+  gem 'database_cleaner'
+  gem 'timecop'
   gem 'webmock'
   gem 'hashdiff'
   gem 'pry-byebug'
+  gem 'rack-test'
 end
 
 group :development do
