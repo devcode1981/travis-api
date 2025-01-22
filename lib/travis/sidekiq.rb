@@ -10,13 +10,16 @@ Travis::Database.connect
 
 Travis::Async.enabled = true
 Travis::Amqp.config = Travis.config.amqp.to_h
-Travis::Metrics.setup
 Travis::Notification.setup
 
 Sidekiq.configure_server do |config|
-  config.redis = Travis.config.redis.to_h.merge(namespace: Travis.config.sidekiq.namespace)
+  cfg = Travis.config.redis.to_h.merge(id: nil)
+  cfg = cfg.merge(ssl_params: Travis.redis_ssl_params) if Travis.config.redis.ssl
+  config.redis = cfg
 end
 
 Sidekiq.configure_client do |config|
-  config.redis = Travis.config.redis.to_h.merge(size: 1, namespace: Travis.config.sidekiq.namespace)
+  cfg = Travis.config.redis.to_h.merge(size: 1, id: nil)
+  cfg = cfg.merge(ssl_params: Travis.redis_ssl_params) if Travis.config.redis.ssl
+  config.redis = cfg
 end

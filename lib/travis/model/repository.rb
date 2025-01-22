@@ -11,6 +11,7 @@ require 'travis/model'
 # A repository also has a ServiceHook that can be used to de/activate service
 # hooks on Github.
 class Repository < Travis::Model
+  self.table_name = 'repositories'
   include Travis::ScopeAccess
 
   require 'travis/model/repository/status_image'
@@ -22,6 +23,7 @@ class Repository < Travis::Model
   has_many :events
   has_many :permissions, dependent: :delete_all
   has_many :users, through: :permissions
+  has_many :broadcasts, as: :recipient
 
   has_one :last_build, -> { order('id DESC') }, class_name: 'Build'
   has_one :key, class_name: 'SslKey'
@@ -30,6 +32,14 @@ class Repository < Travis::Model
   validates :name,       presence: true
   validates :owner_name, presence: true
 
+  after_initialize do
+    ensure_settings
+  end
+
+  before_save do
+    ensure_settings
+  end
+
   # before_create do
   #   build_key
   # end
@@ -37,10 +47,14 @@ class Repository < Travis::Model
   delegate :public_key, to: :key
 
   scope :by_params, ->(params) {
-    if id = params[:repository_id] || params[:id]
+    if (id = params[:repository_id] || params[:id])
       where(id: id)
     elsif params[:github_id]
-      where(github_id: params[:github_id])
+      where('vcs_id = :id OR github_id = :id_i', id: params[:github_id].to_s, id_i: params[:github_id].to_i)
+    elsif params[:vcs_id] && params['vcs_type']
+      where(vcs_id: params[:vcs_id], vcs_type: params['vcs_type'])
+    elsif params[:vcs_id]
+      where(vcs_id: params[:vcs_id])
     elsif params.key?(:slug)
       by_slug(params[:slug])
     elsif params.key?(:name) && params.key?(:owner_name)
@@ -50,7 +64,8 @@ class Repository < Travis::Model
     end
   }
   scope :timeline, -> {
-    active.order('last_build_finished_at IS NULL AND last_build_started_at IS NOT NULL DESC, last_build_started_at DESC NULLS LAST, id DESC')
+    s = 'last_build_finished_at IS NULL AND last_build_started_at IS NOT NULL DESC, last_build_started_at DESC NULLS LAST, id DESC'
+    active.order(Arel.sql(s))
   }
   scope :with_builds, -> {
     where(arel_table[:last_build_id].not_eq(nil))
@@ -70,8 +85,9 @@ class Repository < Travis::Model
   scope :by_slug, ->(slug) {
     owner_name, repo_name = slug.split('/')
     without_invalidated.where(
-      "LOWER(repositories.owner_name) = ? AND LOWER(repositories.name) = ?", owner_name.downcase, repo_name.downcase
-    ).order('id DESC')
+      "(LOWER(repositories.owner_name) = ? AND LOWER(repositories.name) = ?) OR LOWER(vcs_slug) = ?",
+      owner_name.downcase, repo_name.downcase, "#{slug.downcase}"
+    ).order('id DESC, owner_name ASC, name ASC, vcs_slug ASC')
   }
   scope :search, ->(query) {
     query = query.gsub('\\', '/')
@@ -102,7 +118,11 @@ class Repository < Travis::Model
   end
 
   def slug
-    @slug ||= [owner_name, name].join('/')
+    @slug ||= [owner_name, name_from_vcs_slug].join('/')
+  end
+
+  def name_from_vcs_slug
+    vcs_slug.present? ? vcs_slug.split('/')[1] : name
   end
 
   def api_url
@@ -174,6 +194,7 @@ class Repository < Travis::Model
   def settings
     @settings ||= begin
       instance = Repository::Settings.load(super, repository_id: id)
+      instance.handle_ssh_share(id)
       instance.on_save do
         self.settings = instance.to_json
         self.save!
@@ -213,5 +234,18 @@ class Repository < Travis::Model
 
   def migrated?
     migration_status == 'migrated'
+  end
+
+  def github?
+    vcs_type == 'GithubRepository'
+  end
+
+  def admin?
+    true
+  end
+
+  def ensure_settings
+    return if attributes['settings'].nil?
+    self.settings = self['settings'].is_a?(String) ? JSON.parse(self['settings']) : self['settings']
   end
 end

@@ -1,8 +1,8 @@
 module Travis::API::V3
   class Queries::Jobs < Query
     params :state, :created_by, :active, prefix: :job
-    sortable_by :id
-    default_sort "id:desc"
+    sortable_by :id, :state
+    default_sort "id:desc,state"
 
     ACTIVE_STATES = %w(created queued received started).freeze
 
@@ -13,8 +13,6 @@ module Travis::API::V3
     end
 
     def filter(relation)
-      relation = relation.where(state: ACTIVE_STATES) if bool(active)
-      relation = relation.where(state: list(state))   if state
       relation = for_owner(relation)                  if created_by
 
       relation = relation.includes(:build)
@@ -35,10 +33,31 @@ module Travis::API::V3
     end
 
     def for_user(user)
-      ActiveRecord::Base.connection.execute "SET statement_timeout = '300s';"
-      repositories = V3::Models::Permission.where(["permissions.user_id = ?", user.id]).pluck(:repository_id)
-      jobs = V3::Models::Job.where(["jobs.repository_id IN (?)", repositories])
+      set_custom_timeout(host_timeout)
+      if ENV['TCIE_BETA_MOST_RECENT_JOBS_LW'] == 'true'
+        jobs = V3::Models::Job.where("jobs.id in (select id from most_recent_job_ids_for_user_repositories_by_states_lw(#{user.id}, ?))", states)
+      else
+        jobs = V3::Models::Job.where("jobs.id in (select id from most_recent_job_ids_for_user_repositories_by_states(#{user.id}, ?))", states)
+      end
+
       sort filter(jobs)
+    end
+
+    def stats_by_queue(queue)
+      stats = Travis::API::V3::Models::Job.where(state: %w(queued started), queue: queue)
+                                          .group(:state)
+                                          .count
+      Models::JobsStats.new(stats, queue)
+    end
+
+    private
+
+    def states
+      s = []
+      s << ACTIVE_STATES if bool(active)
+      s << list(state) if state
+      return '' if s.empty?
+      s.flatten.uniq.join(',')
     end
   end
 end

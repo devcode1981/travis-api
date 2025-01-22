@@ -6,6 +6,11 @@ describe 'Hooks', set_app: true do
     user.permissions.create repository: repo, admin: true
   end
 
+  let(:authorization) { { 'permissions' => ['repository_settings_create', 'repository_settings_update', 'repository_state_update', 'repository_settings_delete', 'repository_settings_read' ,'repository_cache_view'] } }
+  before { stub_request(:get, %r((.+)/repo/(.+))).to_return(status: 200, body: JSON.generate(authorization)) }
+  before { stub_request(:get, %r((.+)/permissions/repo/(.+))).to_return(status: 200, body: JSON.generate(authorization)) }
+  before { stub_request(:get, %r((.+)/permissions/repo/)).to_return(status: 404, body: JSON.generate(authorization)) }
+
   let(:user)    { User.where(login: 'svenfuchs').first }
   let(:repo)    { Repository.first }
   let(:token)   { Travis::Api::App::AccessToken.create(user: user, app_id: -1) }
@@ -13,7 +18,7 @@ describe 'Hooks', set_app: true do
 
   it 'GET /hooks' do
     response = get '/hooks', {}, headers
-    response.should deliver_json_for(user.service_hooks, version: 'v2', type: 'hooks')
+    expect(response).to deliver_json_for(user.service_hooks, version: 'v2', type: 'hooks')
   end
 
   describe 'PUT /hooks' do # TODO really should be /hooks/1
@@ -30,26 +35,25 @@ describe 'Hooks', set_app: true do
 
     before(:each) do
       Travis.config.service_hook_url = 'notify.travis-ci.org'
-      stub_request(:get, "https://api.github.com/repositories/#{repo.github_id}/hooks?per_page=100").to_return(status: 200, body: '[]')
-      stub_request(:post, "https://api.github.com/repositories/#{repo.github_id}/hooks")
+      allow_any_instance_of(Travis::RemoteVCS::Repository).to receive(:set_hook)
     end
 
     it 'sets the hook' do
       response = put 'hooks', { hook: { id: hook.id, active: 'true' } }, headers
-      repo.reload.active?.should == true
-      response.should be_successful
+      expect(repo.reload.active?).to eq(true)
+      expect(response).to be_successful
     end
 
     context 'when the repo is migrating' do
-      before { repo.update_attributes(migration_status: "migrating") }
+      before { repo.update(migration_status: "migrating") }
       before { put 'hooks', { hook: { id: hook.id, active: 'true' } }, headers }
-      it { last_response.status.should == 403 }
+      it { expect(last_response.status).to eq(403) }
     end
 
     context 'when the repo is migrated' do
-      before { repo.update_attributes(migration_status: "migrated") }
+      before { repo.update(migration_status: "migrated") }
       before { put 'hooks', { hook: { id: hook.id, active: 'true' } }, headers }
-      it { last_response.status.should == 403 }
+      it { expect(last_response.status).to eq(403) }
     end
   end
 end

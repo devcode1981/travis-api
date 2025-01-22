@@ -3,9 +3,14 @@ describe Travis::API::V3::Services::Build::Cancel, set_app: true do
   let(:build) { repo.builds.first }
   let(:payload) { { 'id'=> "#{build.id}", 'user_id' => 1, 'source' => 'api' } }
 
+  let(:authorization) { { 'permissions' => ['repository_state_update', 'repository_build_create', 'repository_settings_create', 'repository_settings_update', 'repository_cache_view', 'repository_cache_delete', 'repository_settings_delete', 'repository_log_view', 'repository_log_delete', 'repository_build_cancel', 'repository_build_debug', 'repository_build_restart', 'repository_settings_read', 'repository_scans_view'] } }
+
+  before { stub_request(:get, %r((.+)/permissions/repo/(.+))).to_return(status: 200, body: JSON.generate(authorization)) }
+
   before do
-    Travis::Features.stubs(:owner_active?).returns(true)
-    Travis::Features.stubs(:owner_active?).with(:enqueue_to_hub, repo.owner).returns(false)
+    allow(Travis::Features).to receive(:owner_active?).and_return(true)
+    allow(Travis::Features).to receive(:owner_active?).with(:enqueue_to_hub, repo.owner).and_return(false)
+    allow(Travis::Features).to receive(:owner_active?).with(:read_only_disabled, repo.owner).and_return(true)
     @original_sidekiq = Sidekiq::Client
     Sidekiq.send(:remove_const, :Client) # to avoid a warning
     Sidekiq::Client = []
@@ -38,6 +43,16 @@ describe Travis::API::V3::Services::Build::Cancel, set_app: true do
       "error_message" => "build not found (or insufficient access)",
       "resource_type" => "build"
     }}
+  end
+
+  describe "existing repository, repo owner ro_mode" do
+    let(:token)   { Travis::Api::App::AccessToken.create(user: repo.owner, app_id: 1) }
+    let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}" }}
+    before { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: true) }
+    before { allow(Travis::Features).to receive(:owner_active?).with(:read_only_disabled, repo.owner).and_return(false) }
+    before { post("/v3/build/#{build.id}/cancel", {}, headers) }
+
+    example { expect(last_response.status).to be == 404 }
   end
 
   describe "existing repository, pull access" do
@@ -132,10 +147,11 @@ describe Travis::API::V3::Services::Build::Cancel, set_app: true do
     let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}"                                                 }}
     before do
       Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, push: true, pull: true)
-      Travis::Features.stubs(:owner_active?).with(:enqueue_to_hub, repo.owner).returns(true)
+      allow(Travis::Features).to receive(:owner_active?).with(:enqueue_to_hub, repo.owner).and_return(true)
     end
 
     describe "started state" do
+
       before        { build.update_attribute(:state, "started")                                                  }
       before        { post("/v3/build/#{build.id}/cancel", params, headers)                                      }
 
@@ -182,7 +198,6 @@ describe Travis::API::V3::Services::Build::Cancel, set_app: true do
         "user_id"=> repo.owner_id,
         "source" => "api"}
       }
-
       example { expect(Sidekiq::Client.last['queue']).to be == 'hub'                }
       example { expect(Sidekiq::Client.last['class']).to be == 'Travis::Hub::Sidekiq::Worker' }
     end

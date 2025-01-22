@@ -16,13 +16,15 @@ class Travis::Api::App
       end
 
       get '/:id' do
-        respond_with service(:find_build, params), include_log_id: include_log_id?
+        respond_with service(:find_build, params), type: :build, include_log_id: include_log_id?
       end
 
       post '/:id/cancel' do
         Metriks.meter("api.v2.request.cancel_build").mark
 
+
         service = Travis::Enqueue::Services::CancelModel.new(current_user, { build_id: params[:id] })
+        auth_for_repo(service&.target&.repository&.id, 'repository_build_cancel') unless Travis.config.legacy_roles
 
         if !service.authorized?
           json = { error: {
@@ -42,7 +44,7 @@ class Travis::Api::App
           status 422
           respond_with json
         else
-          payload = { id: params[:id], user_id: current_user.id, source: 'api' }
+          payload = { id: params[:id], user_id: current_user.id, source: 'api', reason: "Build Cancelled manually by User: #{current_user.login}" }
 
           service.push("build:cancel", payload)
 
@@ -53,14 +55,18 @@ class Travis::Api::App
 
       post '/:id/restart' do
         Metriks.meter("api.v2.request.restart_build").mark
+
+
         service = Travis::Enqueue::Services::RestartModel.new(current_user, build_id: params[:id])
         disallow_migrating!(service.repository)
+
+        auth_for_repo(service.repository.id, 'repository_build_restart') unless Travis.config.legacy_roles
 
         result = if !service.accept?
           status 400
           false
         else
-          payload = { id: params[:id], user_id: current_user.id }
+          payload = { id: params[:id], user_id: current_user.id, restarted_by: current_user.id }
           service.push("build:restart", payload)
           status 202
           true

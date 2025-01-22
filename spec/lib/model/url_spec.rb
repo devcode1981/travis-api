@@ -1,5 +1,5 @@
 describe Url do
-  subject { Url.create(:url => "http://example.com") }
+  subject { Url.create(url: "http://example.com") }
 
   describe ".shorten" do
     it "creates a new Url object if the url has not been shortened" do
@@ -14,13 +14,13 @@ describe Url do
 
   describe "#code" do
     it "sets the code automatically" do
-      subject.code.should_not be_nil
+      expect(subject.code).not_to be_nil
     end
   end
 
   describe "#short_url" do
     it "returns the full short url" do
-      subject.short_url.should match(%r(^http://trvs.io/\w{10}$))
+      expect(subject.short_url).to match(%r(^http://trvs.io/\w{10}$))
     end
   end
 

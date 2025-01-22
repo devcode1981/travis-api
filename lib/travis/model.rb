@@ -7,17 +7,21 @@ require 'core_ext/active_record/base'
 
 module Travis
   class Model < ActiveRecord::Base
+    self.abstract_class = true
+
     require 'travis/model/scope_access'
     require 'travis/model/account'
     require 'travis/model/branch'
     require 'travis/model/broadcast'
     require 'travis/model/build'
+    require 'travis/model/build_backup'
     require 'travis/model/commit'
     require 'travis/model/email'
     require 'travis/model/env_helpers'
     require 'travis/model/job'
     require 'travis/model/membership'
     require 'travis/model/organization'
+    require 'travis/model/owner_group'
     require 'travis/model/permission'
     require 'travis/model/pull_request'
     require 'travis/model/repository'
@@ -28,7 +32,6 @@ module Travis
     require 'travis/model/user'
     require 'travis/model/url'
 
-    self.abstract_class = true
 
     cattr_accessor :follower_connection_handler
 

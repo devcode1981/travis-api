@@ -1,14 +1,14 @@
 require 'spec_helper'
 
 describe Travis::API::V3::Services::BetaMigrationRequests::Find, set_app: true do
-  let!(:user)  { Factory(:user) }
-  let(:beta_migration_request) { Factory(:beta_migration_request, owner_id: user.id) }
-  let(:org1) { Factory(:org_v3) }
-  let(:org2) { Factory(:org_v3) }
+  let!(:user)  { FactoryBot.create(:user) }
+  let(:beta_migration_request) { FactoryBot.create(:beta_migration_request, owner_id: user.id) }
+  let(:org1) { FactoryBot.create(:org_v3) }
+  let(:org2) { FactoryBot.create(:org_v3) }
 
   let(:token) { Travis::Api::App::AccessToken.create(user: user, app_id: 1) }
   let(:auth_headers) { { 'HTTP_AUTHORIZATION' => "token #{token}" } }
-  let!(:other_user) { Factory(:user, login: 'noone') }
+  let!(:other_user) { FactoryBot.create(:user, login: 'noone') }
 
   let(:response_hash) do
     {
@@ -86,9 +86,17 @@ describe Travis::API::V3::Services::BetaMigrationRequests::Find, set_app: true d
       stub_request(:get, "#{Travis.config.api_com_url}/v3/beta_migration_requests?user_login=svenfuchs").to_return(status: 200, body: response_hash.to_json)
       get("/v3/user/#{user.id}/beta_migration_requests", {}, auth_headers)
     end
+
+    let(:parsed_body) { JSON.load(body) }
+    let(:beta_request) { parsed_body['beta_migration_requests'].first }
+
     example { expect(last_response.status).to eq(200) }
     example do
-      expect(JSON.load(body)).to eq(response_hash)
+      expect(beta_request['owner_id']).to eq(beta_migration_request.owner_id)
+      expect(beta_request['owner_type']).to eq(beta_migration_request.owner_type)
+      expect(beta_request['owner_name']).to eq(beta_migration_request.owner_name)
+      expect(beta_request['organizations']).to match_array([org1.id, org2.id])
+      expect(beta_request['organizations_logins']).to match_array([org1.login, org2.login])
     end
   end
 end

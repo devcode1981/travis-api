@@ -1,7 +1,7 @@
 describe Broadcast do
-  let(:org)  { Factory(:org) }
-  let(:repo) { Factory(:repository) }
-  let(:user) { Factory(:user) }
+  let(:org)  { FactoryBot.create(:org) }
+  let(:repo) { FactoryBot.create(:repository) }
+  let(:user) { FactoryBot.create(:user) }
 
   before :each do
     user.organizations << org
@@ -13,47 +13,47 @@ describe Broadcast do
 
     it 'finds a global broadcast' do
       global = Broadcast.create!
-      broadcasts.should include(global)
+      expect(broadcasts).to include(global)
     end
 
     it 'finds a broadcast for the given user' do
-      to_user = Broadcast.create!(recipient: user)
-      broadcasts.should include(to_user)
+      to_user = Broadcast.create!(recipient: user, recipient_type: 'User')
+      expect(broadcasts).to include(to_user)
     end
 
     it 'does not find a broadcast for a different user' do
-      to_user = Broadcast.create!(recipient: Factory(:user, login: 'rkh'))
-      broadcasts.should_not include(to_user)
+      to_user = Broadcast.create!(recipient: FactoryBot.create(:user, login: 'rkh'),  recipient_type: 'User')
+      expect(broadcasts).not_to include(to_user)
     end
 
     it 'finds a broadcast for orgs where the given user is a member' do
-      to_org = Broadcast.create!(recipient: org)
-      broadcasts.should include(to_org)
+      to_org = Broadcast.create!(recipient: org,  recipient_type: 'Organization')
+      expect(broadcasts).to include(to_org)
     end
 
     it 'does not find a broadcast for a different org' do
-      to_org = Broadcast.create!(recipient: Factory(:org, login: 'sinatra'))
-      broadcasts.should_not include(to_org)
+      to_org = Broadcast.create!(recipient: FactoryBot.create(:org, login: 'sinatra'))
+      expect(broadcasts).not_to include(to_org)
     end
 
     it 'finds a broadcast for a repo where the given user has any permissions' do
-      to_repo = Broadcast.create!(recipient: repo)
-      broadcasts.should include(to_repo)
+      to_repo = Broadcast.create!(recipient: repo, recipient_type: 'Repository')
+      expect(broadcasts).to include(to_repo)
     end
 
     it 'does not find a broadcast for a different repo' do
-      to_repo = Broadcast.create!(recipient: Factory(:repository, name: 'sinatra'))
-      broadcasts.should_not include(to_repo)
+      to_repo = Broadcast.create!(recipient: FactoryBot.create(:repository, name: 'sinatra'))
+      expect(broadcasts).not_to include(to_repo)
     end
 
     it 'does not find an expired broadcast' do
       expired = Broadcast.create!(created_at: 4.weeks.ago, expired: true)
-      broadcasts.should_not include(expired)
+      expect(broadcasts).not_to include(expired)
     end
 
     it 'does not find broadcasts older than 2 weeks' do
       too_old = Broadcast.create!(created_at: 4.weeks.ago)
-      broadcasts.should_not include(too_old)
+      expect(broadcasts).not_to include(too_old)
     end
   end
 
@@ -62,41 +62,41 @@ describe Broadcast do
 
     it 'finds a global broadcast' do
       global = Broadcast.create!
-      broadcasts.should include(global)
+      expect(broadcasts).to include(global)
     end
 
     it 'finds a broadcast for the given repo' do
-      to_repo = Broadcast.create!(recipient: repo)
-      broadcasts.should include(to_repo)
+      to_repo = Broadcast.create!(recipient: repo, recipient_type: 'Repository')
+      expect(broadcasts).to include(to_repo)
     end
 
     it 'does not find a broadcast for a different repo' do
-      to_repo = Broadcast.create!(recipient: Factory(:repository, name: 'sinatra'))
-      broadcasts.should_not include(to_repo)
+      to_repo = Broadcast.create!(recipient: FactoryBot.create(:repository, name: 'sinatra'), recipient_type: 'Repository')
+      expect(broadcasts).not_to include(to_repo)
     end
 
     it 'finds a broadcast for an org this repo belongs to' do
-      repo.update_attributes(owner: org)
-      to_org = Broadcast.create!(recipient: org)
-      broadcasts.should include(to_org)
+      repo.update(owner: org, owner_type: 'Organization')
+      to_org = Broadcast.create!(recipient: org,  recipient_type: 'Organization')
+      expect(broadcasts).to include(to_org)
     end
 
     it 'does not find a broadcast for a different org' do
-      repo.update_attributes(owner: org)
-      to_org = Broadcast.create!(recipient: Factory(:org, login: 'sinatra'))
-      broadcasts.should_not include(to_org)
+      repo.update(owner: org)
+      to_org = Broadcast.create!(recipient: FactoryBot.create(:org, login: 'sinatra'),  recipient_type: 'Organization')
+      expect(broadcasts).not_to include(to_org)
     end
 
     it 'finds a broadcast for a user this repo belongs to' do
-      repo.update_attributes(owner: user)
-      to_org = Broadcast.create!(recipient: user)
-      broadcasts.should include(to_org)
+      repo.update(owner: user, owner_type: 'User')
+      to_org = Broadcast.create!(recipient: user,  recipient_type: 'User')
+      expect(broadcasts).to include(to_org)
     end
 
     it 'does not find a broadcast for a different user' do
-      repo.update_attributes(owner: org)
-      to_org = Broadcast.create!(recipient: Factory(:user, login: 'rkh'))
-      broadcasts.should_not include(to_org)
+      repo.update(owner: org)
+      to_org = Broadcast.create!(recipient: FactoryBot.create(:user, login: 'rkh'),  recipient_type: 'User')
+      expect(broadcasts).not_to include(to_org)
     end
   end
 end

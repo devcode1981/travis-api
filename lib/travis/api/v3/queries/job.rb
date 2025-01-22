@@ -13,7 +13,7 @@ module Travis::API::V3
     def cancel(user)
       raise JobNotCancelable if %w(passed failed canceled errored).include? find.state
 
-      payload = { id: id, user_id: user.id, source: 'api' }
+      payload = { id: id, user_id: user.id, source: 'api', reason: "Job Cancelled manually by User with id: #{user.login}" }
       service = Travis::Enqueue::Services::CancelModel.new(user, { job_id: id })
       service.push("job:cancel", payload)
       payload
@@ -23,15 +23,9 @@ module Travis::API::V3
       raise JobAlreadyRunning if %w(received queued started).include? find.state
 
       service = Travis::Enqueue::Services::RestartModel.new(user, { job_id: id })
-      payload = { id: id, user_id: user.id }
+      payload = { id: id, user_id: user.id, restarted_by: user.id }
 
-      restart_status = service.push("job:restart", payload)
-
-      if restart_status == "abuse_detected"
-        restart_status
-      else
-        payload
-      end
+      service.push("job:restart", payload)
     end
   end
 end

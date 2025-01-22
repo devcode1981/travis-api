@@ -11,7 +11,11 @@ module Travis
         register :github_set_hook
 
         def run
-          v3_github.set_hook(repo, active?)
+          remote_vcs_repository.set_hook(
+            repository_id: repo.id,
+            user_id: current_user.id,
+            activate: active?
+          )
         end
 
         private

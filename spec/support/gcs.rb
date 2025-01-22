@@ -15,26 +15,22 @@ module Support
         true
       end
 
-      def list_objects(*args)
+      def bucket(*args)
         FakeObjects.new
       end
     end
 
     class FakeObjects
-      def items
+      def files
         []
       end
-    end
-
-    class FakeAuthorization
     end
 
     extend ActiveSupport::Concern
 
     included do
       before :each do
-        ::Google::Apis::StorageV1::StorageService.stubs(:new).returns(gcs_storage)
-        ::Google::Auth::ServiceAccountCredentials.stubs(:make_creds).returns(FakeAuthorization.new)
+        allow(::Google::Cloud::Storage).to receive(:new).and_return(gcs_storage)
       end
       let(:gcs_storage) { FakeService.new }
     end

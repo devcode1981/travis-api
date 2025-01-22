@@ -189,9 +189,41 @@ describe Travis::API::V3::Services::Caches::Find, set_app: true do
     </ListBucketResult>"
   }
 
+  let(:gcs_json_bucket_response) {
+    %q{
+      {"kind": "storage#bucket",
+       "selfLink":  "https://www.googleapis.com/storage/v1/b/travis-cache-staging-org-gce",
+        "name": "travis-cache-production-org-gce",
+        "id": "travis-cache-staging-org-gce/25736446"
+      }
+    }
+  }
+  let(:authorization) { { 'permissions' => ['repository_state_update', 'repository_build_create', 'repository_settings_create', 'repository_settings_update', 'repository_cache_view', 'repository_cache_delete', 'repository_settings_delete', 'repository_log_view', 'repository_log_delete', 'repository_build_cancel', 'repository_build_debug', 'repository_build_restart', 'repository_settings_read', 'repository_scans_view'] } }
+
+  before { stub_request(:get, %r((.+)/permissions/repo/(.+))).to_return(status: 200, body: JSON.generate(authorization)) }
+
   before do
     repo.default_branch.save!
     repo.owner.permissions.create(repository_id: repo.id, push: true)
+
+    stub_request(:post, "https://oauth2.googleapis.com/token").
+      to_return(:status => 200, :body => "{}", :headers => {"Content-Type" => "application/json"})
+    stub_request(:get,%r((.+))).with(
+      headers: { 'Metadata-Flavor'=>'Google', 'User-Agent'=>'Ruby'}
+    ).to_return(status: 200, body: "", headers: {})
+
+    stub_request(:get, "https://storage.googleapis.com/storage/v1/b/travis-cache-production-org-gce").
+      to_return(:status => 200, :body => gcs_json_bucket_response, :headers => {"Content-Type" => "application/json"})
+
+    stub_request(:get, "https://storage.googleapis.com/storage/v1/b/travis-cache-production-org-gce/o").
+      to_return(:status => 200, :body => gcs_json_response, :headers => {"Content-Type" => "application/json"})
+
+    stub_request(:get, "https://travis-cache-staging-org.s3.us-east-2.amazonaws.com/?encoding-type=url").
+      to_return(:status => 200, :body => xml_content_single_repo, :headers => {})
+    stub_request(:get, "https://travis-cache-staging-org.s3.us-east-2.amazonaws.com/1/ha-bug-rm_rf/cache-linux-precise-lkjdhfsod8fu4tc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855--rvm-2.2.5--gemfile-Gemfile.tgz").
+      to_return(:status => 200, :body => xml_content_single_repo, :headers => {})
+   stub_request(:get, "https://travis-cache-staging-org.s3.us-east-2.amazonaws.com/1/master/cache-linux-precise-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855--rvm-default--gemfile-Gemfile.tgz").
+      to_return(:status => 200, :body => xml_content_single_repo, :headers => {})
   end
 
   around(:each) do |example|
@@ -211,20 +243,32 @@ describe Travis::API::V3::Services::Caches::Find, set_app: true do
         "client_x509_cert_url" => "travis-cache-org-api-production"
       }),
     project_id: 'foo-bar-99515' }
+    Travis.config.cache_options.gcs = { bucket_name: 'travis-cache-production-org-gce',
+      json_key:
+        {
+          "type" => "service_account",
+          "project_id" => "123",
+          "private_key_id" => "123456",
+          "private_key" => TEST_PRIVATE_KEY,
+          "client_email" => "travis-cache-org-api-production",
+          "client_id" => "1234",
+          "auth_uri" => "https://accounts.google.com/o/oauth2/auth",
+          "token_uri" => "https://accounts.google.com/oauth2/v4/token",
+          "auth_provider_x509_cert_url" => "https://www.googleapis.com/oauth2/v1/certs",
+          "client_x509_cert_url" => "travis-cache-org-api-production"
+        },
+      project_id: 'foo-bar-99515' }
     example.run
     Travis.config.cache_options = {}
   end
 
   describe "existing cache on s3 and gcs" do
     before     do
-      stub_request(:get, "https://#{s3_bucket_name}.s3.amazonaws.com/?prefix=#{repo.id}/").
+      stub_request(:get, "https://#{s3_bucket_name}.s3.us-east-2.amazonaws.com/?encoding-type=url&prefix=1/").
         to_return(:status => 200, :body => xml_content, :headers => {})
 
-        stub_request(:post, "https://www.googleapis.com/oauth2/v4/token").
-        to_return(:status => 200, :body => "{}", :headers => {"Content-Type" => "application/json"})
-
-        stub_request(:get, "https://www.googleapis.com/storage/v1/b/travis-cache-production-org-gce/o?prefix=#{repo.id}/").
-         to_return(:status => 200, :body => gcs_json_response, :headers => {"Content-Type" => "application/json"})
+      stub_request(:get, "https://storage.googleapis.com/storage/v1/b/travis-cache-production-org-gce/o?prefix=1/").
+        to_return(:status => 200, :body => gcs_json_response, :headers => {"Content-Type" => "application/json"})
 
     end
     before     { get("/v3/repo/#{repo.id}/caches", {}, headers) }
@@ -241,13 +285,10 @@ describe Travis::API::V3::Services::Caches::Find, set_app: true do
 
   describe "filter by branch s3" do
     before     do
-      stub_request(:get, "https://#{s3_bucket_name}.s3.amazonaws.com/?prefix=#{repo.id}/#{result[0]["branch"]}/").
+      stub_request(:get, "https://#{s3_bucket_name}.s3.us-east-2.amazonaws.com/?encoding-type=url&prefix=1/ha-bug-rm_rf/").
         to_return(:status => 200, :body => xml_content_single_repo, :headers => {})
 
-      stub_request(:post, "https://www.googleapis.com/oauth2/v4/token").
-        to_return(:status => 200, :body => "{}", :headers => {"Content-Type" => "application/json"})
-
-      stub_request(:get, "https://www.googleapis.com/storage/v1/b/travis-cache-production-org-gce/o?prefix=#{repo.id}/#{result[0]["branch"]}/").
+      stub_request(:get, "https://storage.googleapis.com/storage/v1/b/travis-cache-production-org-gce/o?prefix=1/ha-bug-rm_rf/").
         to_return(:status => 200, :body => empty_gcs_content, :headers => {"Content-Type" => "application/json"})
     end
 
@@ -264,13 +305,10 @@ describe Travis::API::V3::Services::Caches::Find, set_app: true do
 
   describe "filter by match on gcs" do
     before do
-      stub_request(:get, "https://#{s3_bucket_name}.s3.amazonaws.com/?prefix=#{repo.id}/").
+      stub_request(:get, "https://#{s3_bucket_name}.s3.us-east-2.amazonaws.com/?encoding-type=url&prefix=1/").
         to_return(:status => 200, :body => empty_xml_content, :headers => {})
 
-      stub_request(:post, "https://www.googleapis.com/oauth2/v4/token").
-        to_return(:status => 200, :body => "{}", :headers => {"Content-Type" => "application/json"})
-
-      stub_request(:get, "https://www.googleapis.com/storage/v1/b/travis-cache-production-org-gce/o?prefix=1/").
+      stub_request(:get, "https://storage.googleapis.com/storage/v1/b/travis-cache-production-org-gce/o?prefix=1/").
         to_return(:status => 200, :body => gcs_json_response, :headers => {"Content-Type" => "application/json"})
     end
 
@@ -286,15 +324,17 @@ describe Travis::API::V3::Services::Caches::Find, set_app: true do
   end
 
   context "without push permission" do
+
+    let(:authorization) { { 'permissions' => ['repository_settings_read'] } }
     it "raises Travis::AuthorizationDenied" do
       repo.owner.permissions.last.update(push: false)
 
       get("/v3/repo/#{repo.id}/caches?match=osx", {}, headers)
 
-      expect(JSON.load(body)).to eq({
+      expect(JSON.load(body)).to include({
         "@type" => "error",
         "error_type" => "insufficient_access",
-        "error_message" => "forbidden",
+        "error_message" => "operation requires cache_view access to repository",
       })
       expect(last_response.status).to eq 403
     end

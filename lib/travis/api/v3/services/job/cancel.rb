@@ -3,8 +3,9 @@ module Travis::API::V3
 
     def run
       job = check_login_and_find(:job)
-      access_control.permissions(job).cancel!
+      return not_found if job.owner.ro_mode?
 
+      access_control.permissions(job).cancel!
       query.cancel(access_control.user)
       accepted(job: job, state_change: :cancel)
     end

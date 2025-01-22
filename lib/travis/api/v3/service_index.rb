@@ -121,7 +121,7 @@ module Travis::API::V3
           pattern.to_templates.each do |template|
             params    = factory.params if request_method == 'GET'.freeze
             params  &&= params.reject { |p| p.start_with?(?@.freeze) }
-            params  &&= params.reject { |p| p == 'skip_count'.freeze }
+            params  &&= params.reject { |p| p == 'skip_count'.freeze || p == 'representation'.freeze }
 
             if query
               params &&= params.reject { |p| query.get_experimental_params.include?(p) }
@@ -133,7 +133,7 @@ module Travis::API::V3
               :request_method => request_method,
               :uri_template => prefix + template
             }
-            action[:accepted_params] = factory.accepted_params if ['POST'.freeze, 'PATCH'.freeze].include? request_method
+            action[:accepted_params] = factory.accepted_params.uniq if ['POST'.freeze, 'PATCH'.freeze].include? request_method
             list << action
           end
 

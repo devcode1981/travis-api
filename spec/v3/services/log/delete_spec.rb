@@ -1,11 +1,9 @@
-require 'spec_helper'
-
 describe Travis::API::V3::Services::Log::Delete, set_app: true do
-  let(:user)        { Factory.create(:user) }
-  let(:repo)        { Factory.create(:repository, owner_name: user.login, name: 'minimal', owner: user)}
-  let(:repo2)       { Factory.create(:repository, owner_name: user.login, name: 'minimal2', owner: user)}
-  let(:build)       { Factory.create(:build, repository: repo) }
-  let(:build2)      { Factory.create(:build, repository: repo2) }
+  let(:user)        { FactoryBot.create(:user) }
+  let(:repo)        { FactoryBot.create(:repository, owner_name: user.login, name: 'minimal', owner: user)}
+  let(:repo2)       { FactoryBot.create(:repository, owner_name: user.login, name: 'minimal2', owner: user)}
+  let(:build)       { FactoryBot.create(:build, repository: repo) }
+  let(:build2)      { FactoryBot.create(:build, repository: repo2) }
   let(:job)         { Travis::API::V3::Models::Job.create(build: build, repository: repo) }
   let(:job2)        { Travis::API::V3::Models::Job.create(build: build2) }
   let(:job3)        { Travis::API::V3::Models::Job.create(build: build2) }
@@ -41,14 +39,19 @@ describe Travis::API::V3::Services::Log::Delete, set_app: true do
   }
 
   around(:each) do |example|
+    options = Travis.config.log_options
     Travis.config.log_options.s3 = { access_key_id: 'key', secret_access_key: 'secret' }
     example.run
-    Travis.config.log_options = {}
+    Travis.config.log_options = options
   end
 
+  let(:authorization) { { 'permissions' => ['repository_state_update', 'repository_build_create', 'repository_settings_create', 'repository_settings_update', 'repository_cache_view', 'repository_cache_delete', 'repository_settings_delete', 'repository_log_view', 'repository_build_restart', 'repository_settings_read', 'repository_scans_view'] } }
+
+  before { stub_request(:get, %r((.+)/permissions/repo/(.+))).to_return(status: 200, body: JSON.generate(authorization)) }
+
   before do
-    Travis::API::V3::AccessControl::LegacyToken.any_instance.stubs(:visible?).returns(true)
-    Travis::API::V3::Permissions::Job.any_instance.stubs(:delete_log?).returns(true)
+    allow_any_instance_of(Travis::API::V3::AccessControl::LegacyToken).to receive(:visible?).and_return(true)
+    allow_any_instance_of(Travis::API::V3::Permissions::Job).to receive(:delete_log?).and_return(true)
     stub_request(:get, "https://bucket.s3.amazonaws.com/?max-keys=1000").
       to_return(:status => 200, :body => xml_content, :headers => {})
     stub_request(:get, "https://s3.amazonaws.com/archive.travis-ci.org/?prefix=jobs/#{job.id}/log.txt").
@@ -66,7 +69,7 @@ describe Travis::API::V3::Services::Log::Delete, set_app: true do
   end
 
   describe "missing log, authenticated" do
-    before { job3.update_attributes(finished_at: Time.now, state: "passed")}
+    before { job3.update(finished_at: Time.now, state: "passed")}
 
     example do
       stub_request(
@@ -84,7 +87,7 @@ describe Travis::API::V3::Services::Log::Delete, set_app: true do
   end
 
   describe "sucessfully delete log" do
-    before { job.update_attributes(finished_at: Time.now, state: "passed")}
+    before { job.update(finished_at: Time.now, state: "passed")}
     let(:remote_log_response) {
       JSON.dump(job_id: job.id,
       log_parts: [
@@ -102,6 +105,7 @@ describe Travis::API::V3::Services::Log::Delete, set_app: true do
     }
     before { Timecop.freeze(Time.now) }
 
+    let(:authorization) { { 'permissions' => ['repository_settings_read', 'repository_log_view'] } }
     example do
       stub_request(:get, "#{Travis.config.logs_api.url}/logs/#{job.id}?by=job_id&source=api").
         with(headers: {
@@ -135,7 +139,8 @@ describe Travis::API::V3::Services::Log::Delete, set_app: true do
           "delete_log" => false,
           "cancel" => false,
           "restart" => false,
-          "debug" => false
+          "debug" => false,
+          "view_log" => true
         },
         "id" => nil,
         "content" => nil,

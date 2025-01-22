@@ -112,8 +112,14 @@ class Travis::Api::App
         uri.to_s
       end
 
-      def safe_redirect(url)
-        redirect(endpoint('/redirect', to: url), 301)
+      def authorizer
+        @_authorizer ||= Travis::API::V3::Authorizer::new(current_user&.id)
+      end
+
+      def auth_for_repo(id, type)
+        permission = authorizer.for_repo(id, type)
+        halt 403, { error: { message: "We're sorry, but you're not authorized to perform this request" } } unless permission
+      rescue Travis::API::V3::AuthorizerError
       end
   end
 end
@@ -123,6 +129,7 @@ require 'travis/api/app/endpoint/authorization'
 require 'travis/api/app/endpoint/branches'
 require 'travis/api/app/endpoint/broadcasts'
 require 'travis/api/app/endpoint/builds'
+require 'travis/api/app/endpoint/build_backups'
 require 'travis/api/app/endpoint/documentation'
 require 'travis/api/app/endpoint/endpoints'
 require 'travis/api/app/endpoint/env_vars'
@@ -131,6 +138,7 @@ require 'travis/api/app/endpoint/home'
 require 'travis/api/app/endpoint/hooks'
 require 'travis/api/app/endpoint/jobs'
 require 'travis/api/app/endpoint/lint'
+require 'travis/api/app/endpoint/logout'
 require 'travis/api/app/endpoint/logs'
 require 'travis/api/app/endpoint/pusher'
 require 'travis/api/app/endpoint/repos'

@@ -4,9 +4,11 @@ require 'travis/model'
 require 'travis/services/next_build_number'
 
 class BuildConfig < ActiveRecord::Base
+  self.table_name = 'build_configs'
 end
 
 class Build < Travis::Model
+  self.table_name = 'builds'
   require 'travis/model/build/config'
   require 'travis/model/build/denormalize'
   require 'travis/model/build/update_branch'
@@ -24,7 +26,7 @@ class Build < Travis::Model
   belongs_to :pull_request
   belongs_to :repository, autosave: true
   belongs_to :owner, polymorphic: true
-  belongs_to :config, foreign_key: :config_id, class_name: BuildConfig
+  belongs_to :config, foreign_key: :config_id, class_name: 'BuildConfig'
   has_many   :matrix, -> { order('id') }, as: :source, class_name: 'Job::Test', dependent: :destroy
   has_many   :events, as: :source
 
@@ -139,6 +141,7 @@ class Build < Travis::Model
   end
 
   after_save do
+    Travis::Model.table_name = 'builds'
     unless cached_matrix_ids
       update_column(:cached_matrix_ids, to_postgres_array(matrix_ids))
     end
@@ -146,15 +149,6 @@ class Build < Travis::Model
 
   def state
     (super || :created).to_sym
-  end
-
-  # AR 3.2 does not handle pg arrays and the plugins supporting them
-  # do not work well with jdbc drivers
-  # TODO: remove this once we're on >= 4.0
-  def cached_matrix_ids
-    if (value = super) && value =~ /^{/
-      value.gsub(/^{|}$/, '').split(',').map(&:to_i)
-    end
   end
 
   def matrix_ids
@@ -176,7 +170,11 @@ class Build < Travis::Model
 
   def config
     @config ||= begin
-      config = super&.config || has_attribute?(:config) && read_attribute(:config) || {}
+      record = super
+      config = record&.config_json if record.respond_to?(:config_json)
+      config ||= record&.config
+      config ||= read_attribute(:config) if has_attribute?(:config)
+      config ||= {}
       config.deep_symbolize_keys! if config.respond_to?(:deep_symbolize_keys!)
       Config.new(config, multi_os: repository.try(:multi_os_enabled?)).normalize
     end
@@ -187,8 +185,13 @@ class Build < Travis::Model
   end
 
   def cancelable?
-    matrix.any? { |job| job.cancelable? }
+    matrix.any? { |job| job.cancelable? } || (matrix.empty? && running?)
   end
+
+  def running?
+    [:started, :queued, :received].include?(state.try(:to_sym))
+  end
+
 
   def pull_request?
     event_type == 'pull_request'
@@ -201,6 +204,14 @@ class Build < Travis::Model
 
   def on_default_branch?
     branch == repository.default_branch
+  end
+
+  def branch_name
+    read_attribute(:branch)
+  end
+
+  def branch_name=(value)
+    write_attribute(:branch, value)
   end
 
   private

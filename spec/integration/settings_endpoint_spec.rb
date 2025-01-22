@@ -2,6 +2,8 @@ describe Travis::Api::App::SettingsEndpoint do
   let(:repo)    { Repository.by_slug('svenfuchs/minimal').first }
   let(:headers) { { 'HTTP_ACCEPT' => 'application/vnd.travis-ci.2+json' } }
 
+  before { stub_request(:get, %r((.+)/repo/(.+))).to_return(status: 401) }
+
   before do
     model_class = Class.new(Repository::Settings::Model) do
       attribute :id, String
@@ -47,15 +49,15 @@ describe Travis::Api::App::SettingsEndpoint do
 
         response = get '/settings/items/' + item.id, { repository_id: repo.id }, headers
         json = JSON.parse(response.body)
-        json['item']['name'].should == 'an item'
-        json['item']['id'].should == item.id
-        json['item'].should_not have_key('secret')
+        expect(json['item']['name']).to eq('an item')
+        expect(json['item']['id']).to eq(item.id)
+        expect(json['item']).not_to have_key('secret')
       end
 
       it 'returns 404 if item can\'t be found' do
         response = get '/settings/items/123', { repository_id: repo.id }, headers
         json = JSON.parse(response.body)
-        json['error'].should == "Could not find a requested setting"
+        expect(json['error']).to eq("Could not find a requested setting")
       end
     end
 
@@ -67,32 +69,32 @@ describe Travis::Api::App::SettingsEndpoint do
 
         response = get '/settings/items', { repository_id: repo.id }, headers
         json = JSON.parse(response.body)
-        json['items'].length.should == 1
+        expect(json['items'].length).to eq(1)
         item = json['items'].first
-        item['name'].should == 'an item'
-        item['id'].should_not be_nil
-        item.should_not have_key('secret')
+        expect(item['name']).to eq('an item')
+        expect(item['id']).not_to be_nil
+        expect(item).not_to have_key('secret')
       end
     end
 
     describe 'POST /items' do
       context 'when the repo is migrating' do
-        before { repo.update_attributes(migration_status: "migrating") }
+        before { repo.update(migration_status: "migrating") }
 
         it "responds with 403" do
           body = { item: { name: 'foo', secret: 'TEH SECRET' } }.to_json
           response = post "/settings/items?repository_id=#{repo.id}", body, headers
-          response.status.should == 403
+          expect(response.status).to eq(403)
         end
       end
 
       context 'when the repo is migrated' do
-        before { repo.update_attributes(migration_status: "migrated") }
+        before { repo.update(migration_status: "migrated") }
 
         it "responds with 403" do
           body = { item: { name: 'foo', secret: 'TEH SECRET' } }.to_json
           response = post "/settings/items?repository_id=#{repo.id}", body, headers
-          response.status.should == 403
+          expect(response.status).to eq(403)
         end
       end
 
@@ -100,37 +102,37 @@ describe Travis::Api::App::SettingsEndpoint do
         body = { item: { name: 'foo', secret: 'TEH SECRET' } }.to_json
         response = post "/settings/items?repository_id=#{repo.id}", body, headers
         json = JSON.parse(response.body)
-        json['item']['name'].should == 'foo'
-        json['item']['id'].should_not be_nil
-        json['item'].should_not have_key('secret')
+        expect(json['item']['name']).to eq('foo')
+        expect(json['item']['id']).not_to be_nil
+        expect(json['item']).not_to have_key('secret')
 
         item = repo.reload.settings.items.first
-        item.id.should_not be_nil
-        item.name.should == 'foo'
-        item.secret.decrypt.should == 'TEH SECRET'
+        expect(item.id).not_to be_nil
+        expect(item.name).to eq('foo')
+        expect(item.secret.decrypt).to eq('TEH SECRET')
       end
 
       it 'returns error message if item is invalid' do
         response = post "/settings/items?repository_id=#{repo.id}", '{}', headers
-        response.status.should == 422
+        expect(response.status).to eq(422)
 
         json = JSON.parse(response.body)
-        json['message'].should == 'Validation failed'
-        json['errors'].should == [{
+        expect(json['message']).to eq('Validation failed')
+        expect(json['errors']).to eq([{
           'field' => 'name',
           'code' => 'missing_field'
         }, {
           'field' => 'secret',
           'code'  => 'missing_field'
-        }]
+        }])
 
-        repo.reload.settings.items.to_a.length.should == 0
+        expect(repo.reload.settings.items.to_a.length).to eq(0)
       end
     end
 
     describe 'PATCH /items/:id' do
       context 'when the repo is migrating' do
-        before { repo.update_attributes(migration_status: "migrating") }
+        before { repo.update(migration_status: "migrating") }
 
         it "responds with 403" do
           settings = repo.settings
@@ -139,13 +141,13 @@ describe Travis::Api::App::SettingsEndpoint do
 
           body = { item: { name: 'a new name', secret: 'a new secret' } }.to_json
           response = patch "/settings/items/#{item.id}?repository_id=#{repo.id}", body, headers
-          response.status.should == 403
+          expect(response.status).to eq(403)
 
         end
       end
 
       context 'when the repo is migrated' do
-        before { repo.update_attributes(migration_status: "migrated") }
+        before { repo.update(migration_status: "migrated") }
 
         it "responds with 403" do
           settings = repo.settings
@@ -154,7 +156,7 @@ describe Travis::Api::App::SettingsEndpoint do
 
           body = { item: { name: 'a new name', secret: 'a new secret' } }.to_json
           response = patch "/settings/items/#{item.id}?repository_id=#{repo.id}", body, headers
-          response.status.should == 403
+          expect(response.status).to eq(403)
         end
       end
 
@@ -166,14 +168,14 @@ describe Travis::Api::App::SettingsEndpoint do
         body = { item: { name: 'a new name', secret: 'a new secret' } }.to_json
         response = patch "/settings/items/#{item.id}?repository_id=#{repo.id}", body, headers
         json = JSON.parse(response.body)
-        json['item']['name'].should == 'a new name'
-        json['item']['id'].should == item.id
-        json['item'].should_not have_key('secret')
+        expect(json['item']['name']).to eq('a new name')
+        expect(json['item']['id']).to eq(item.id)
+        expect(json['item']).not_to have_key('secret')
 
         updated_item = repo.reload.settings.items.find(item.id)
-        updated_item.id.should == item.id
-        updated_item.name.should == 'a new name'
-        updated_item.secret.decrypt.should == 'a new secret'
+        expect(updated_item.id).to eq(item.id)
+        expect(updated_item.name).to eq('a new name')
+        expect(updated_item.secret.decrypt).to eq('a new secret')
       end
 
       it 'returns an error message if item is invalid' do
@@ -183,25 +185,25 @@ describe Travis::Api::App::SettingsEndpoint do
 
         body = { item: { name: '' } }.to_json
         response = patch "/settings/items/#{item.id}?repository_id=#{repo.id}", body, headers
-        response.status.should == 422
+        expect(response.status).to eq(422)
 
         json = JSON.parse(response.body)
-        json['message'].should == 'Validation failed'
-        json['errors'].should == [{
+        expect(json['message']).to eq('Validation failed')
+        expect(json['errors']).to eq([{
           'field' => 'name',
           'code' => 'missing_field'
-        }]
+        }])
 
         updated_item = repo.reload.settings.items.find(item.id)
-        updated_item.id.should == item.id
-        updated_item.name.should == 'an item'
-        updated_item.secret.decrypt.should == 'TEH SECRET'
+        expect(updated_item.id).to eq(item.id)
+        expect(updated_item.name).to eq('an item')
+        expect(updated_item.secret.decrypt).to eq('TEH SECRET')
       end
     end
 
     describe 'DELETE /items/:id' do
       context 'when the repo is migrating' do
-        before { repo.update_attributes(migration_status: "migrating") }
+        before { repo.update(migration_status: "migrating") }
 
         it "responds with 403" do
           settings = repo.settings
@@ -211,13 +213,13 @@ describe Travis::Api::App::SettingsEndpoint do
           params = { repository_id: repo.id }
           response = delete '/settings/items/' + item.id, params, headers
 
-          response.status.should == 403
+          expect(response.status).to eq(403)
 
         end
       end
 
       context 'when the repo is migrated' do
-        before { repo.update_attributes(migration_status: "migrated") }
+        before { repo.update(migration_status: "migrated") }
 
         it "responds with 403" do
           settings = repo.settings
@@ -227,7 +229,7 @@ describe Travis::Api::App::SettingsEndpoint do
           params = { repository_id: repo.id }
           response = delete '/settings/items/' + item.id, params, headers
 
-          response.status.should == 403
+          expect(response.status).to eq(403)
         end
       end
 
@@ -240,17 +242,17 @@ describe Travis::Api::App::SettingsEndpoint do
         params = { repository_id: repo.id }
         response = delete '/settings/items/' + item.id, params, headers
         json = JSON.parse(response.body)
-        json['item']['name'].should == 'an item'
-        json['item']['id'].should == item.id
-        json['item'].should_not have_key('secret')
+        expect(json['item']['name']).to eq('an item')
+        expect(json['item']['id']).to eq(item.id)
+        expect(json['item']).not_to have_key('secret')
 
-        repo.reload.settings.items.length.should == 0
+        expect(repo.reload.settings.items.length).to eq(0)
       end
 
       it 'returns 404 if item can\'t be found' do
         response = delete '/settings/items/123', { repository_id: repo.id }, headers
         json = JSON.parse(response.body)
-        json['error'].should == "Could not find a requested setting"
+        expect(json['error']).to eq("Could not find a requested setting")
       end
     end
   end

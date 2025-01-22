@@ -2,7 +2,7 @@ require 'forwardable'
 require 'json'
 
 require 'faraday'
-require 'faraday_middleware'
+require 'faraday/net_http_persistent'
 require 'virtus'
 
 
@@ -75,6 +75,10 @@ module Travis
       @archived_url ||= remote.fetch_archived_url(job_id, expires: expires)
     end
 
+    def archived_log_content
+      @archived_content ||= remote.fetch_archived_log_content(job_id)
+    end
+
     def to_json(chunked: false, after: nil, part_numbers: [])
       as_json(
         chunked: chunked,
@@ -101,7 +105,7 @@ module Travis
           part_numbers: part_numbers
         ).map(&:as_json)
       else
-        ret['body'] = content
+        ret['body'] = archived? ? archived_log_content : content
       end
 
       { 'log' => ret }
@@ -208,8 +212,6 @@ module Travis
         @conn ||= Faraday.new(http_options.merge(url: url)) do |c|
           c.request :authorization, :token, token
           c.request :retry, max: 5, interval: 0.1, backoff_factor: 2
-          c.use :instrumentation
-          c.use OpenCensus::Trace::Integrations::FaradayMiddleware if Travis::Api::App::Middleware::OpenCensus.enabled?
           c.adapter :net_http_persistent
         end
       end
@@ -220,14 +222,19 @@ module Travis
     end
 
     class ArchiveClient
-      def initialize(access_key_id: nil, secret_access_key: nil, bucket_name: nil)
+      def initialize(access_key_id: nil, secret_access_key: nil, bucket_name: nil, region: nil, endpoint: nil)
         @bucket_name = bucket_name
-        @s3 = Fog::Storage.new(
-          aws_access_key_id: access_key_id,
-          aws_secret_access_key: secret_access_key,
-          provider: 'AWS',
-          instrumentor: ActiveSupport::Notifications,
-          connection_options: { instrumentor: ActiveSupport::Notifications }
+
+        @s3 = endpoint ?
+          Aws::S3::Client.new(
+          credentials: Aws::Credentials.new(access_key_id, secret_access_key),
+          region: region || 'us-east-2',
+          endpoint: endpoint
+        )
+        :
+        Aws::S3::Client.new(
+          credentials: Aws::Credentials.new(access_key_id, secret_access_key),
+          region: region || 'us-east-2',
         )
       end
 
@@ -243,14 +250,17 @@ module Travis
         file.url(expires)
       end
 
-      private def fetch_archived(job_id)
-        candidates = s3.directories.get(
-          bucket_name,
-          prefix: "jobs/#{job_id}/log.txt"
-        ).files
+      def fetch_archived_log_content(job_id)
+        file = fetch_archived(job_id)
+        return "" if file.nil?
+        s3.get_object(bucket: bucket_name, key: file.key)&.body&.read
+      end
 
+      private def fetch_archived(job_id)
+        candidates = s3.list_objects_v2(bucket: bucket_name, prefix: "jobs/#{job_id}/log.txt")
         return nil if candidates.empty?
-        candidates.first
+
+        candidates&.contents&.first
       end
     end
 
@@ -268,7 +278,7 @@ module Travis
       def_delegators :client, :find_by_job_id, :find_by_id,
         :find_id_by_job_id, :find_parts_by_job_id, :write_content_for_job_id
 
-      def_delegators :archive_client, :fetch_archived_url
+      def_delegators :archive_client, :fetch_archived_url, :fetch_archived_log_content
 
       attr_accessor :platform
 
@@ -304,12 +314,18 @@ module Travis
 
       private def create_archive_client
         Travis.logger.info("archive_s3_config.access_key_id: #{archive_s3_config[:access_key_id]}")
-        Travis.logger.info("s3_bucket: #{archive_s3_bucket}")
+        Travis.logger.info("s3_bucket: #{archive_s3_config[:bucket] || archive_s3_config[:bucket_name] || archive_s3_bucket}")
         ArchiveClient.new(
           access_key_id: archive_s3_config[:access_key_id],
           secret_access_key: archive_s3_config[:secret_access_key],
-          bucket_name: archive_s3_bucket
+          bucket_name: archive_s3_config[:bucket] || archive_s3_config[:bucket_name] || archive_s3_bucket,
+          region: archive_s3_config[:region] || 'us-east-2',
+          endpoint: endpoint
         )
+      end
+
+      private def endpoint
+        archive_s3_config[:endpoint]&.index('http') == 0 ? archive_s3_config[:endpoint] : "https://#{archive_s3_config[:endpoint]}"
       end
 
       private def archive_s3_bucket

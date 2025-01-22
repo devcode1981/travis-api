@@ -1,3 +1,42 @@
+require 'spec_helper'
+
+require 'travis/api/v3/routes'
+require 'travis/api/v3/service'
+require 'travis/api/v3/services'
+
+module Travis::API::V3
+  module Services
+    Foo = Module.new { extend Travis::API::V3::Services }
+    Foo::Find = Class.new(Travis::API::V3::Service)
+    Foo::DoSomething = Class.new(Travis::API::V3::Service)
+    Foo::DoSomethingSecret = Class.new(Travis::API::V3::Service)
+
+    Bar = Module.new { extend Travis::API::V3::Services }
+    Bar::Find = Class.new(Travis::API::V3::Service)
+  end
+
+  class Services::Foo::Find < Service
+    def run!
+      head
+    end
+  end
+
+  module Routes
+    resource :foo do
+      route '/foo'
+      get :find
+
+      hide(post :do_something_secret, '/do_something_secret')
+      post :do_something, '/do_something'
+    end
+
+    hidden_resource :bar do
+      route '/bar'
+      get :find
+    end
+  end
+end
+
 describe Travis::API::V3::ServiceIndex, set_app: true do
   let(:headers)   {{                        }}
   let(:path)      { '/'                      }
@@ -9,33 +48,10 @@ describe Travis::API::V3::ServiceIndex, set_app: true do
     let(:headers) { { 'HTTP_ACCEPT' => 'application/vnd.travis-ci.3+json' } }
 
     it 'hides a resource from the service index' do
-      Travis::API::V3::Services.const_set('Foo', Module.new { extend Travis::API::V3::Services })
-      Travis::API::V3::Services::Foo.const_set('Find', Class.new(Travis::API::V3::Service))
-      Travis::API::V3::Services::Foo.const_set('DoSomething', Class.new(Travis::API::V3::Service))
-      Travis::API::V3::Services::Foo.const_set('DoSomethingSecret', Class.new(Travis::API::V3::Service))
-      Travis::API::V3::Services.const_set('Bar', Module.new { extend Travis::API::V3::Services })
-      Travis::API::V3::Services::Bar.const_set('Find', Class.new(Travis::API::V3::Service))
-      Travis::API::V3::Routes.module_eval do
-        resource :foo do
-          route '/foo'
-          get :find
-
-          hide(post :do_something_secret, '/do_something_secret')
-          post :do_something, '/do_something'
-        end
-
-        hidden_resource :bar do
-          route '/bar'
-          get :find
-        end
-      end
-
       expect(json['resources']).to have_key('foo')
       expect(json['resources']).to_not have_key('bar')
       expect(json['resources']['foo']['actions']).to have_key('do_something')
       expect(json['resources']['foo']['actions']).to_not have_key('do_something_secret')
-
-      #TODO: it would be nice to remove extra routes after finishing this spec
     end
   end
 
@@ -58,7 +74,15 @@ describe Travis::API::V3::ServiceIndex, set_app: true do
               "@type"=>"template",
               "request_method"=>"POST",
               "uri_template"=>"#{path}repo/{repository.id}/requests",
-              "accepted_params" => ["request.config", "request.message", "request.branch", "request.token"]
+              "accepted_params" => %w(
+                request.merge_mode
+                request.config
+                request.configs
+                request.message
+                request.branch
+                request.sha
+                request.token
+              )
             )
           end
         end
@@ -100,7 +124,7 @@ describe Travis::API::V3::ServiceIndex, set_app: true do
 
         describe "find action" do
           let(:action) { resource.fetch("actions").fetch("find") }
-          specify { expect(action).to include("@type"=>"template", "request_method"=>"GET", "uri_template"=>"#{path}repo/{repository.id}{?include}") }
+          specify { expect(action).to include("@type"=>"template", "request_method"=>"GET", "uri_template"=>"#{path}repo/{repository.id}{?include,repository.server_type,server_type}") }
         end
 
         describe "activate action" do
@@ -294,9 +318,9 @@ describe Travis::API::V3::ServiceIndex, set_app: true do
 
         describe "find action" do
           let(:action) { resource.fetch("actions").fetch("find") }
-          specify { expect(action).to include("@type"=>"template", "request_method"=>"GET", "uri_template"=>"#{path}owner/{owner.login}{?include}") }
-          specify { expect(action).to include("@type"=>"template", "request_method"=>"GET", "uri_template"=>"#{path}owner/{user.login}{?include}") }
-          specify { expect(action).to include("@type"=>"template", "request_method"=>"GET", "uri_template"=>"#{path}owner/{organization.login}{?include}") }
+          specify { expect(action).to include("@type"=>"template", "request_method"=>"GET", "uri_template"=>"#{path}owner/{login}{?include}") }
+          specify { expect(action).to include("@type"=>"template", "request_method"=>"GET", "uri_template"=>"#{path}owner/{provider}/{login}{?include}") }
+          specify { expect(action).to include("@type"=>"template", "request_method"=>"GET", "uri_template"=>"#{path}owner/github_id/{github_id}{?include}") }
         end
       end
 

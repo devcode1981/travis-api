@@ -39,6 +39,8 @@ module Travis
       JobNotCancelable    = ClientError        .create('job is not running, cannot cancel', status: 409)
       JobUnfinished       = ClientError        .create('job still running, cannot remove log yet', status: 409)
       LogAlreadyRemoved   = ClientError        .create('log has already been removed', status: 409)
+      LogExpired          = ClientError        .create("We're sorry, but this data is not available anymore. Please check the repository settings in Travis CI.", status: 403)
+      LogAccessDenied     = ClientError        .create("We're sorry, but this data is not available. Please check the repository settings in Travis CI.", status: 403)
       LoginRequired       = ClientError        .create('login required', status: 403)
       MethodNotAllowed    = ClientError        .create('method not allowed', status: 405)
       NotImplemented      = ServerError        .create('request not (yet) implemented', status: 501)
@@ -50,6 +52,7 @@ module Travis
       UnprocessableEntity = ClientError        .create('request unable to be processed due to semantic errors', status: 422)
       WrongCredentials    = ClientError        .create('access denied',  status: 403)
       WrongParams         = ClientError        .create('wrong parameters')
+      TimeoutError        = ServerError        .create("Credit card processing is currently taking longer than expected. Please check back in a few minutes and refresh the screen at that time.<br>We apologize for the inconvenience and appreciate your patience.", status: 504)
     end
   end
 end

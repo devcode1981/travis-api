@@ -1,6 +1,6 @@
 require 'pusher'
 require 'travis/support'
-require 'travis/support/database'
+#require 'travis/support/database'
 require 'travis/errors'
 
 module Travis
@@ -31,6 +31,8 @@ module Travis
   class AdminMissing      < StandardError; end
   class RepositoryMissing < StandardError; end
   class LogAlreadyRemoved < StandardError; end
+  class LogExpired        < StandardError; end
+  class LogAccessDenied   < StandardError; end
   class AuthorizationDenied < StandardError; end
   class JobUnfinished     < StandardError; end
 
@@ -45,10 +47,14 @@ module Travis
       Github.setup
       Services.register
       Github::Services.register
+
+      require 'patches/active_record/predicate_builder'
     end
 
     def redis
-      @redis ||= Redis.new(config.redis.to_h)
+      cfg = config.redis.to_h
+      cfg = cfg.merge(ssl_params: redis_ssl_params) if config.redis.ssl
+      @redis ||= Redis.new(cfg.to_h)
     end
 
     def pusher
@@ -59,6 +65,19 @@ module Travis
         pusher.scheme = config.pusher.scheme if config.pusher.scheme
         pusher.host   = config.pusher.host   if config.pusher.host
         pusher.port   = config.pusher.port   if config.pusher.port
+      end
+    end
+
+    def redis_ssl_params
+      @redis_ssl_params ||= begin
+        return nil unless Travis.config.redis.ssl
+
+        value = {}
+        value[:ca_file] = ENV['REDIS_SSL_CA_FILE'] if ENV['REDIS_SSL_CA_FILE']
+        value[:cert] = OpenSSL::X509::Certificate.new(File.read(ENV['REDIS_SSL_CERT_FILE'])) if ENV['REDIS_SSL_CERT_FILE']
+        value[:key] = OpenSSL::PKEY::RSA.new(File.read(ENV['REDIS_SSL_KEY_FILE'])) if ENV['REDIS_SSL_KEY_FILE']
+        value[:verify_mode] = OpenSSL::SSL::VERIFY_NONE if Travis.config.ssl_verify == false
+        value
       end
     end
 

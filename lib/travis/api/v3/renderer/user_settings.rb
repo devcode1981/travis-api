@@ -1,3 +1,5 @@
+require 'travis/rollout'
+
 module Travis::API::V3
   class Renderer::UserSettings < CollectionRenderer
     type           :settings
@@ -10,12 +12,12 @@ module Travis::API::V3
     end
 
     def allow?(setting)
-      return true unless setting[:name] == :allow_config_imports
-      repo.private? && allow_config_imports?
-    end
+      return unless setting
 
-    def allow_config_imports?
-      Travis::Features.owner_active?(:config_imports, repo.owner)
+      case setting[:name]
+      when :allow_config_imports then repo.private?
+      else true
+      end
     end
 
     def repo
