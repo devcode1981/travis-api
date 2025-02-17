@@ -1,3 +1,5 @@
+require 'travis/github_apps'
+
 module Travis::API::V3
   class Models::Repository < Model
     has_many :commits,     dependent: :delete_all
@@ -19,14 +21,25 @@ module Travis::API::V3
       primary_key: [:id,  :default_branch],
       class_name:  'Travis::API::V3::Models::Branch'.freeze
 
+    scope :by_server_type, ->(server_type) { where(server_type: server_type) }
+
     alias last_started_build current_build
 
     after_initialize do
-      update_attributes! default_branch_name: 'master'.freeze unless default_branch_name
+      ensure_settings
+      update! default_branch_name: 'master'.freeze unless default_branch_name
+    end
+
+    before_save do
+      ensure_settings
     end
 
     def migrating?
       self.class.column_names.include?('migrating') && super
+    end
+
+    def github?
+      vcs_type == 'GithubRepository'
     end
 
     def migrated_at
@@ -34,7 +47,12 @@ module Travis::API::V3
     end
 
     def slug
-      @slug ||= "#{owner_name}/#{name}"
+      @slug ||= vcs_slug || "#{owner_name}/#{name}"
+    end
+
+    def vcs_name
+      return vcs_slug.split('/')[1] if vcs_slug && vcs_slug.split('/')[1]
+      name
     end
 
     def default_branch_name
@@ -76,7 +94,7 @@ module Travis::API::V3
         new_branch = true
       end
 
-      branch = branches.where(name: name).first
+      branch = branches.includes(:builds).where(name: name).first
       return branch unless new_branch
       return nil    unless create_without_build or branch.builds.any?
       branch.last_build = branch.builds.order("number::int desc").first
@@ -85,7 +103,7 @@ module Travis::API::V3
     end
 
     def legacy_find_or_create_branch(name, create_without_build: false)
-      return nil    unless branch = branches.where(name: name).first_or_initialize
+      return nil    unless branch = branches.includes(:builds).where(name: name).first_or_initialize
       return branch unless branch.new_record?
       return nil    unless create_without_build or branch.builds.any?
       branch.last_build = branch.builds.order("number::int desc").first
@@ -112,11 +130,15 @@ module Travis::API::V3
     end
 
     def user_settings
-      Models::UserSettings.new(settings).tap { |us| us.sync(self, :settings) }
+      Models::UserSettings.new(self, settings).tap { |us| us.sync(self, :settings) }
     end
 
     def admin_settings
       Models::AdminSettings.new(settings).tap { |as| as.sync(self, :settings) }
+    end
+
+    def config_validation
+      !!user_settings[:config_validation]
     end
 
     def env_vars
@@ -131,6 +153,35 @@ module Travis::API::V3
       Models::KeyPair.load(settings['ssh_key'], repository_id: id).tap do |kp|
         kp.sync(self, :settings)
       end
+    end
+
+    def private_key
+      key&.private_key
+    end
+
+    def token
+      installation ? app_token : admin&.github_oauth_token
+    end
+
+    def app_token
+      github_apps.access_token
+    end
+
+    def github_apps
+      Travis::GithubApps.new(
+        installation.github_id,
+        apps_id: Travis.config[:github_apps][:id],
+        private_pem: Travis.config[:github_apps][:private_pem],
+        redis: Travis.config[:redis].to_h,
+      )
+    end
+
+    def installation?
+      !!installation
+    end
+
+    def installation
+      owner&.installation
     end
 
     def debug_tools_enabled?
@@ -153,6 +204,19 @@ module Travis::API::V3
 
     def allow_migration?
       Travis::Features.owner_active?(:allow_migration, self.owner)
+    end
+
+    def perforce?
+      server_type == 'perforce'
+    end
+
+    def subversion?
+      server_type == 'subversion'
+    end
+
+    def ensure_settings
+      return if attributes['settings'].nil?
+      self.settings = self['settings'].is_a?(String) ? JSON.parse(self['settings']) : self['settings']
     end
   end
 end

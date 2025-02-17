@@ -4,15 +4,29 @@ describe Travis::API::V3::Services::Build::Restart, set_app: true do
   let(:build) { repo.builds.first }
   let(:payload) { { 'id'=> "#{build.id}", 'user_id' => 1 } }
 
+  let(:authorization) { { 'permissions' => ['repository_state_update', 'repository_build_create', 'repository_settings_create', 'repository_settings_update', 'repository_cache_view', 'repository_cache_delete', 'repository_settings_delete', 'repository_log_view', 'repository_log_delete', 'repository_build_cancel', 'repository_build_debug', 'repository_build_restart', 'repository_settings_read', 'repository_scans_view'] } }
+
+  before { stub_request(:get, %r((.+)/permissions/repo/(.+))).to_return(status: 200, body: JSON.generate(authorization)) }
   before do
-    Travis::Features.stubs(:owner_active?).returns(true)
-    Travis::Features.stubs(:owner_active?).with(:enqueue_to_hub, repo.owner).returns(false)
+    build.update(state: :passed)
+    Travis.config.billing.url = 'http://localhost:9292/'
+    Travis.config.billing.auth_key = 'secret'
+
+    stub_request(:post, /http:\/\/localhost:9292\/(users|organizations)\/(.+)\/authorize_build/).to_return(
+      body: MultiJson.dump(allowed: true, rejection_code: nil)
+    )
+
+    allow(Travis::Features).to receive(:owner_active?).and_return(true)
+    allow(Travis::Features).to receive(:owner_active?).with(:enqueue_to_hub, repo.owner).and_return(false)
+    allow(Travis::Features).to receive(:owner_active?).with(:read_only_disabled, repo.owner).and_return(true)
     @original_sidekiq = Sidekiq::Client
     Sidekiq.send(:remove_const, :Client) # to avoid a warning
     Sidekiq::Client = []
   end
 
   after do
+    Travis.config.billing.url = nil
+    Travis.config.billing.auth_key = nil
     Sidekiq.send(:remove_const, :Client) # to avoid a warning
     Sidekiq::Client = @original_sidekiq
   end
@@ -48,14 +62,14 @@ describe Travis::API::V3::Services::Build::Restart, set_app: true do
 
     describe "repo migrating on .com" do
       before  { Travis.config.host = "travis-ci.com" }
-      before  { repo.update_attributes(migration_status: "migrating") }
+      before  { repo.update(migration_status: "migrating") }
       before  { post("/v3/build/#{build.id}/restart", {}, headers) }
 
       example { expect(last_response.status).to be == 202 }
     end
 
     describe "repo migrating" do
-      before  { repo.update_attributes(migration_status: "migrating") }
+      before  { repo.update(migration_status: "migrating") }
       before  { post("/v3/build/#{build.id}/restart", {}, headers) }
 
       example { expect(last_response.status).to be == 403 }
@@ -67,7 +81,7 @@ describe Travis::API::V3::Services::Build::Restart, set_app: true do
     end
 
     describe "repo migrating" do
-      before  { repo.update_attributes(migration_status: "migrated") }
+      before  { repo.update(migration_status: "migrated") }
       before  { post("/v3/build/#{build.id}/restart", {}, headers) }
 
       example { expect(last_response.status).to be == 403 }
@@ -77,6 +91,18 @@ describe Travis::API::V3::Services::Build::Restart, set_app: true do
         "error_message" => "This repository has been migrated to travis-ci.com. Modifications to repositories, builds, and jobs are disabled on travis-ci.org. If you have any questions please contact us at support@travis-ci.com"
       }}
     end
+  end
+
+  describe "existing repository, repo owner ro_mode" do
+    let(:token)   { Travis::Api::App::AccessToken.create(user: repo.owner, app_id: 1) }
+    let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}" }}
+    before do
+      Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: true)
+      allow(Travis::Features).to receive(:owner_active?).with(:read_only_disabled, repo.owner).and_return(false)
+      post("/v3/build/#{build.id}/restart", {}, headers)
+    end
+
+    example { expect(last_response.status).to be == 404 }
   end
 
   describe "existing repository, pull access" do
@@ -178,7 +204,7 @@ describe Travis::API::V3::Services::Build::Restart, set_app: true do
     let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}"                                                 }}
     before do
       Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: true)
-      Travis::Features.stubs(:owner_active?).with(:enqueue_to_hub, repo.owner).returns(true)
+      allow(Travis::Features).to receive(:owner_active?).with(:enqueue_to_hub, repo.owner).and_return(true)
     end
 
     shared_examples 'clears debug_options for all jobs' do

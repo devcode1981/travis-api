@@ -2,11 +2,17 @@ describe 'v1 logs', auth_helpers: true, api_version: :v1, set_app: true do
   let(:user)  { FactoryBot.create(:user) }
   let(:repo)  { Repository.by_slug('svenfuchs/minimal').first }
   let(:build) { repo.builds.first }
-  let(:job)   { build.matrix.first }
-  let(:log)   { stub(id: 1) }
+  let(:job)   { Job.where(source_id: build.id).first }
+  let(:log)   { double(id: 1) }
 
   let(:log_url) { "#{Travis.config[:logs_api][:url]}/logs/1?by=id&source=api" }
-  before { stub_request(:get, log_url).to_return(status: 200, body: %({"job_id": #{job.id}, "content": "content"})) }
+  before do
+    stub_request(:get, log_url).to_return(status: 200, body: %({"job_id": #{job.id}, "content": "content"}))
+    stub_request(:get, %r((.+)/repo/(.+))).to_return(status: 401)
+    repository = Travis::API::V3::Models::Repository.find(repo.id)
+    repository.user_settings.update(:job_log_time_based_limit, true)
+    repository.save!
+  end
 
   describe 'in public mode, with a private repo', mode: :public, repo: :private do
     describe 'GET /logs/%{log.id}' do

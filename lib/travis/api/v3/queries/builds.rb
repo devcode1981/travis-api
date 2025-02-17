@@ -8,6 +8,7 @@ module Travis::API::V3
     default_sort "number:desc,id:desc"
 
     def find(repository)
+      set_custom_timeout(host_timeout)
       sort filter(repository.builds)
     end
 

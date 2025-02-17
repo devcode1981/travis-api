@@ -136,6 +136,8 @@ module Travis::API::V3
       @main_type = main_type.to_s
       @includes  = includes
       @service   = service
+
+      ActiveRecord::Base.connection.enable_query_cache! unless Travis.env == 'test'
     end
 
     def warn(*args)
@@ -150,7 +152,7 @@ module Travis::API::V3
 
     def perform_async(identifier, *args)
       class_name, queue = Query.sidekiq_queue(identifier)
-      ::Sidekiq::Client.push('queue'.freeze => queue, 'class'.freeze => class_name, 'args'.freeze => args)
+      ::Sidekiq::Client.push('queue'.freeze => queue, 'class'.freeze => class_name, 'args'.freeze => args.map! {|arg| arg.to_json})
     end
 
     def includes?(key)
@@ -205,7 +207,7 @@ module Travis::API::V3
         collection = collection.joins(field.to_sym)
       end
 
-      first ? collection.reorder(line) : collection.order(line)
+      first ? collection.reorder(Arel.sql(line)) : collection.order(Arel.sql(line))
     end
 
     def sort_join?(collection, field)
@@ -237,6 +239,31 @@ module Travis::API::V3
       else
         "#{field} #{order}"
       end
+    end
+
+    def set_custom_timeout(timeout_in_seconds)
+      ActiveRecord::Base.connection.execute "SET statement_timeout = '#{timeout_in_seconds}s';"
+    end
+
+    def host_timeout
+      return extended_timeout if slow_hosts.any? { |sh| host && host.match?(sh) }
+      default_timeout
+    end
+
+    def host
+      @service.instance_variable_get(:@env)["HTTP_ORIGIN"]
+    end
+
+    def slow_hosts
+      (ENV['SLOW_HOSTS'] || "").split(',')
+    end
+
+    def default_timeout
+      Travis.config.db.max_statement_timeout_in_seconds
+    end
+
+    def extended_timeout
+      Travis.config.db.slow_host_max_statement_timeout_in_seconds
     end
   end
 end

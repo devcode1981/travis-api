@@ -6,14 +6,38 @@ describe 'visibilty', set_app: true do
   let(:response) { send(method, path, {}, { 'HTTP_ACCEPT' => 'application/vnd.travis-ci.2.1+json' }) }
   let(:status)   { response.status }
   let(:body)     { JSON.parse(response.body).deep_symbolize_keys }
+  let(:job_id)   { 42864 }
+  let(:archived_content) { 'hello world!'}
 
-  before { repo.update_attributes(private: false) }
+  before { repo.update(private: false) }
   before { requests.update_all(private: true) }
   before { builds.update_all(private: true) }
   before { jobs.update_all(private: true) }
-  before { requests[0].update_attributes(private: false) }
-  before { builds[0].update_attributes(private: false) }
-  before { jobs[0].update_attributes(private: false) }
+  before { requests[0].update(private: false) }
+  before { builds[0].update(private: false) }
+  before { jobs[0].update(private: false) }
+
+  before { stub_request(:get, %r((.+)/repo/(.+))).to_return(status: 401) }
+  before do
+    repository = Travis::API::V3::Models::Repository.find(repo.id)
+    repository.user_settings.update(:job_log_time_based_limit, true)
+    repository.save!
+  end
+  before :each do
+    class FakeFile
+      attr_accessor :body, :key
+      def initialize(data)
+        @body = JSON.generate(data)
+        @key = "jobs/1/log.txt"
+      end
+    end
+    file = FakeFile.new({
+      body: archived_content
+    })
+
+    allow_any_instance_of(Travis::RemoteLog::ArchiveClient).to receive(:fetch_archived).and_return(file)
+    allow_any_instance_of(Travis::RemoteLog::ArchiveClient).to receive(:fetch_archived_log_content).and_return(file.body)
+  end
 
   let(:public_request)  { requests[0] }
   let(:public_build)    { builds[0] }
@@ -156,17 +180,17 @@ describe 'visibilty', set_app: true do
   end
 
   describe 'GET /repos/%{repo.id}' do
-    before { repo.update_attributes(private: true) }
+    before { repo.update(private: true) }
     it { expect(status).to eq 404 }
   end
 
   describe 'GET /repos/%{repo.id}/caches' do
-    before { repo.update_attributes(private: true) }
+    before { repo.update(private: true) }
     it { expect(status).to eq 404 }
   end
 
   describe 'GET /repos/%{repo.slug}' do
-    before { repo.update_attributes(private: true) }
+    before { repo.update(private: true) }
     it { expect(status).to eq 404 }
   end
 

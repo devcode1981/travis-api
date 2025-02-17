@@ -1,6 +1,6 @@
 describe Travis::API::V3::Services::UserSetting::Update, set_app: true do
   let(:repo)  { Travis::API::V3::Models::Repository.where(owner_name: 'svenfuchs', name: 'minimal').first_or_create }
-  let(:other_user) { FactoryGirl.create(:user) }
+  let(:other_user) { FactoryBot.create(:user) }
   let(:token) { Travis::Api::App::AccessToken.create(user: repo.owner, app_id: 1) }
   let(:other_token) { Travis::Api::App::AccessToken.create(user: other_user, app_id: 2) }
   let(:auth_headers) { { 'HTTP_AUTHORIZATION' => "token #{token}" } }
@@ -8,6 +8,10 @@ describe Travis::API::V3::Services::UserSetting::Update, set_app: true do
 
   let(:old_params) { JSON.dump('setting.value' => false) }
   let(:new_params) { JSON.dump('setting.value' => false) }
+
+  let(:authorization) { { 'permissions' => [ 'repository_settings_read'] } }
+
+  before { stub_request(:get, %r((.+)/repo/(.+))).to_return(status: 200, body: JSON.generate(authorization)) }
 
   describe 'not authenticated' do
     before do
@@ -41,6 +45,7 @@ describe Travis::API::V3::Services::UserSetting::Update, set_app: true do
   end
 
   shared_examples 'successful patch' do
+    let(:authorization) { { 'permissions' => [ 'repository_settings_read', 'repository_settings_create'] } }
     example { expect(last_response.status).to eq(200) }
     example do
       expect(JSON.load(body)).to eq(
@@ -57,6 +62,11 @@ describe Travis::API::V3::Services::UserSetting::Update, set_app: true do
     end
     example 'does not clobber other things in the settings hash' do
       expect(repo.reload.settings['env_vars']).to eq(['something'])
+    end
+    example 'audit is created' do
+      expect(Travis::API::V3::Models::Audit.last.source_id).to eq(repo.id)
+      expect(Travis::API::V3::Models::Audit.last.source_type).to eq('Repository')
+      expect(Travis::API::V3::Models::Audit.last.source_changes).to eq({"settings"=>{"build_pushes"=>{"after"=>false, "before"=>true}}})      
     end
   end
 
@@ -96,7 +106,7 @@ describe Travis::API::V3::Services::UserSetting::Update, set_app: true do
           '@href' => "/v3/repo/#{repo.id}/setting/build_pushes",
           '@representation' => 'minimal',
           'name' => 'build_pushes',
-          'value' => false
+          'value' => true
         }
       )
     end
@@ -109,7 +119,7 @@ describe Travis::API::V3::Services::UserSetting::Update, set_app: true do
     end
  
     describe "repo migrating" do
-      before { repo.update_attributes(migration_status: "migrating") }
+      before { repo.update(migration_status: "migrating") }
       before {
         patch("/v3/repo/#{repo.id}/setting/build_pushes", new_params, json_headers.merge(auth_headers))
       }
@@ -123,7 +133,7 @@ describe Travis::API::V3::Services::UserSetting::Update, set_app: true do
     end
 
     describe "repo migrating" do
-      before { repo.update_attributes(migration_status: "migrating") }
+      before { repo.update(migration_status: "migrating") }
       before {
         patch("/v3/repo/#{repo.id}/setting/build_pushes", new_params, json_headers.merge(auth_headers))
       }

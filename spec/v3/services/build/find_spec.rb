@@ -5,13 +5,21 @@ describe Travis::API::V3::Services::Build::Find, set_app: true do
   let(:stages) { build.stages }
   let(:jobs)   { Travis::API::V3::Models::Build.find(build.id).jobs }
   let(:parsed_body) { JSON.load(body) }
+  let(:org) { Travis::API::V3::Models::Organization.new(login: 'example-org') }
+
+  let(:authorization) { { 'permissions' => ['repository_state_update', 'repository_build_create', 'repository_settings_create', 'repository_settings_update', 'repository_cache_view', 'repository_cache_delete', 'repository_settings_delete', 'repository_log_view', 'repository_log_delete', 'repository_build_cancel', 'repository_build_debug', 'repository_build_restart', 'repository_settings_read', 'repository_scans_view'] } }
+
 
   before do
-    build.update_attributes(sender_id: repo.owner.id, sender_type: 'User')
+    stub_request(:get, %r((.+)/permissions/repo/(.+))).to_return(status: 200, body: JSON.generate(authorization))
+    stub_request(:post,  'http://billingfake.travis-ci.com/usage/stats')
+      .with(body: "{\"owners\":[{\"id\":1,\"type\":\"User\"}],\"query\":\"trial_allowed\"}")
+      .to_return(status: 200, body: "{\"trial_allowed\": false }", headers: {})
+    build.update(sender_id: repo.owner.id, sender_type: 'User')
     test   = build.stages.create(number: 1, name: 'test')
     deploy = build.stages.create(number: 2, name: 'deploy')
-    build.jobs[0, 2].each { |job| job.update_attributes!(stage: test) }
-    build.jobs[2, 2].each { |job| job.update_attributes!(stage: deploy) }
+    build.jobs[0, 2].each { |job| job.update!(stage: test) }
+    build.jobs[2, 2].each { |job| job.update!(stage: deploy) }
     build.reload
   end
 
@@ -32,6 +40,7 @@ describe Travis::API::V3::Services::Build::Find, set_app: true do
   end
 
   describe "build on public repository, no pull access" do
+    let(:authorization) { { 'permissions' => ['repository_log_view', 'repository_settings_read'] } }
     before     { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: false) }
     before     { get("/v3/build/#{build.id}") }
     example    { expect(last_response).to be_ok }
@@ -42,7 +51,8 @@ describe Travis::API::V3::Services::Build::Find, set_app: true do
       "@permissions"        => {
         "read"              => true,
         "cancel"            => false,
-        "restart"           => false},
+        "restart"           => false,
+        "prioritize"        => false},
       "id"                  => build.id,
       "number"              => build.number,
       "state"               => build.state,
@@ -52,6 +62,7 @@ describe Travis::API::V3::Services::Build::Find, set_app: true do
       "pull_request_number" => build.pull_request_number,
       "pull_request_title"  => build.pull_request_title,
       "private"             => false,
+      "priority"            => false,
       "started_at"          => "2010-11-12T13:00:00Z",
       "finished_at"         => nil,
       "updated_at"          => json_format_time_with_ms(build.updated_at),
@@ -139,7 +150,8 @@ describe Travis::API::V3::Services::Build::Find, set_app: true do
       "@permissions"        => {
         "read"              => true,
         "cancel"            => true,
-        "restart"           => true},
+        "restart"           => true,
+        "prioritize"        => false},
       "id"                  => build.id,
       "number"              => build.number,
       "state"               => build.state,
@@ -149,6 +161,7 @@ describe Travis::API::V3::Services::Build::Find, set_app: true do
       "pull_request_number" => build.pull_request_number,
       "pull_request_title"  => build.pull_request_title,
       "private"             => false,
+      "priority"            => false,
       "started_at"          => "2010-11-12T13:00:00Z",
       "finished_at"         => nil,
       "updated_at"          => json_format_time_with_ms(build.updated_at),
@@ -218,6 +231,7 @@ describe Travis::API::V3::Services::Build::Find, set_app: true do
   end
 
   describe "build on public repository, no pull access" do
+    let(:authorization) { { 'permissions' => ['repository_log_view', 'repository_settings_read'] } }
     before     { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: false) }
     before     { get("/v3/build/#{build.id}") }
     example    { expect(last_response).to be_ok }
@@ -228,7 +242,8 @@ describe Travis::API::V3::Services::Build::Find, set_app: true do
       "@permissions"        => {
         "read"              => true,
         "cancel"            => false,
-        "restart"           => false},
+        "restart"           => false,
+        "prioritize"        => false},
       "id"                  => build.id,
       "number"              => build.number,
       "state"               => build.state,
@@ -236,6 +251,7 @@ describe Travis::API::V3::Services::Build::Find, set_app: true do
       "event_type"          => "push",
       "previous_state"      => build.previous_state,
       "private"             => false,
+      "priority"            => false,
       "pull_request_number" => build.pull_request_number,
       "pull_request_title"  => build.pull_request_title,
       "started_at"          => "2010-11-12T13:00:00Z",
@@ -326,6 +342,7 @@ describe Travis::API::V3::Services::Build::Find, set_app: true do
   end
 
   describe 'including a request' do
+    before { build.request.messages.create(level: 'warn') }
     before { get("/v3/build/#{build.id}?include=build.request") }
 
     example { expect(last_response).to be_ok }
@@ -337,9 +354,10 @@ describe Travis::API::V3::Services::Build::Find, set_app: true do
         'id',
         'state',
         'result',
-        'message'
+        'message',
       )
     end
+    it { expect(parsed_body['request']['messages'][0]['level']).to eq 'warn' }
   end
 
   describe 'including created_by' do
@@ -373,14 +391,14 @@ describe Travis::API::V3::Services::Build::Find, set_app: true do
   describe 'including log_complete on hosted' do
     before do
       jobs.each do |j|
-        stub_request(:get, "http://travis-logs-notset.example.com:1234/logs/#{j.id}?by=job_id&source=api").
+        stub_request(:get, "#{Travis.config.logs_api.url}/logs/#{j.id}?by=job_id&source=api").
            with(  headers: {
             'Accept'=>'*/*',
             'Accept-Encoding'=>'gzip;q=1.0,deflate;q=0.6,identity;q=0.3',
             'Authorization'=>'token notset',
             'Connection'=>'keep-alive',
             'Keep-Alive'=>'30',
-            'User-Agent'=>'Faraday v0.15.3'
+            'User-Agent'=>'Faraday v2.7.10'
              }).
            to_return(status: 200, body: "{}", headers: {})
       end
@@ -397,14 +415,14 @@ describe Travis::API::V3::Services::Build::Find, set_app: true do
   describe 'including log_complete on enterprise' do
     before do
       jobs.each do |j|
-        stub_request(:get, "http://travis-logs-notset.example.com:1234/logs/#{j.id}?by=job_id&source=api").
+        stub_request(:get, "#{Travis.config.logs_api.url}/logs/#{j.id}?by=job_id&source=api").
            with(  headers: {
             'Accept'=>'*/*',
             'Accept-Encoding'=>'gzip;q=1.0,deflate;q=0.6,identity;q=0.3',
             'Authorization'=>'token notset',
             'Connection'=>'keep-alive',
             'Keep-Alive'=>'30',
-            'User-Agent'=>'Faraday v0.15.3'
+            'User-Agent'=>'Faraday v2.7.10'
              }).
            to_return(status: 200, body: "{}", headers: {})
       end

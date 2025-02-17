@@ -19,7 +19,7 @@ class Travis::Api::App
       get '/:id' do
         job = service(:find_job, params).run
         if job && job.repository
-          respond_with job, include_log_id: include_log_id?
+          respond_with job, type: :job, include_log_id: include_log_id?
         else
           json = { error: { message: "The job(#{params[:id]}) couldn't be found" } }
           status 404
@@ -31,6 +31,8 @@ class Travis::Api::App
         Metriks.meter("api.v2.request.cancel_job").mark
 
         service = Travis::Enqueue::Services::CancelModel.new(current_user, { job_id: params[:id] })
+
+        auth_for_repo(service&.target&.repository&.id, 'repository_build_cancel') unless Travis.config.legacy_roles
 
         if !service.authorized?
           json = { error: {
@@ -50,7 +52,7 @@ class Travis::Api::App
           status 422
           respond_with json
         else
-          payload = { id: params[:id], user_id: current_user.id, source: 'api' }
+          payload = { id: params[:id], user_id: current_user.id, source: 'api', reason: "Job Cancelled manually by User with id: #{current_user.login}" }
           service.push("job:cancel", payload)
 
           Metriks.meter("api.v2.request.cancel_job.success").mark
@@ -62,13 +64,15 @@ class Travis::Api::App
         Metriks.meter("api.v2.request.restart_job").mark
 
         service = Travis::Enqueue::Services::RestartModel.new(current_user, { job_id: params[:id] })
+
+        auth_for_repo(service&.repository&.id, 'repository_build_restart') unless Travis.config.legacy_roles
         disallow_migrating!(service.repository)
 
         result = if !service.accept?
           status 400
           false
         else
-          payload = {id: params[:id], user_id: current_user.id}
+          payload = {id: params[:id], user_id: current_user.id, restarted_by: current_user.id}
           service.push("job:restart", payload)
           status 202
           true
@@ -92,17 +96,11 @@ class Travis::Api::App
         elsif resource.archived?
           # the way we use responders makes it hard to validate proper format
           # automatically here, so we need to check it explicitly
-          if accepts?('text/plain') || request.user_agent.to_s.start_with?('Travis')
-            archived_log_path = resource.archived_url
-
-            if params[:cors_hax]
-              status 204
-              headers['Access-Control-Expose-Headers'] = 'Location'
-              headers['Location'] = archived_log_path
-              attach_log_token if job.try(:private?)
-            else
-              redirect archived_log_path, 307
-            end
+          if accepts?('text/plain')
+            respond_with resource.archived_log_content
+          elsif accepts?('application/json')
+            attach_log_token if job.try(:private?)
+            respond_with resource.as_json
           else
             status 406
           end

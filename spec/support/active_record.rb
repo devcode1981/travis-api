@@ -6,12 +6,13 @@ require 'travis/testing/factories'
 
 FileUtils.mkdir_p('log')
 
-ActiveRecord::Base.default_timezone = :utc
+ActiveRecord.default_timezone = :utc
 ActiveRecord::Base.logger = Logger.new('log/test.db.log')
 ActiveRecord::Base.establish_connection(Travis.config.database.to_h)
 
 DatabaseCleaner.clean_with :truncation
 DatabaseCleaner.strategy = :transaction
+DatabaseCleaner.allow_remote_database_url = true
 
 module Support
   module ActiveRecord

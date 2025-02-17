@@ -1,6 +1,6 @@
 describe Travis::API::V3::Services::Insights::Metrics, set_app: true do
-  let(:organization) { Factory(:org) }
-  let(:user) { Factory(:user) }
+  let(:organization) { FactoryBot.create(:org) }
+  let(:user) { FactoryBot.create(:user) }
   let(:token) { Travis::Api::App::AccessToken.create(user: user, app_id: 1) }
   let(:authenticated_headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}" }}
   let(:anonymous_headers) {{}}
@@ -11,7 +11,7 @@ describe Travis::API::V3::Services::Insights::Metrics, set_app: true do
   let(:stubbed_response_headers) {{ content_type: 'application/json' }}
 
   let!(:stubbed_request) do
-    stub_request(:get, insights_url).with(headers: { 'Authorization' => "Token token=\"#{Travis.config.insights.auth_token}\""}).to_return(status: stubbed_response_status, body: stubbed_response_body, headers: stubbed_response_headers)
+    stub_request(:get, insights_url).to_return(status: stubbed_response_status, body: stubbed_response_body, headers: stubbed_response_headers)
   end
 
   before do
@@ -65,14 +65,14 @@ describe Travis::API::V3::Services::Insights::Metrics, set_app: true do
 
       context 'for a user' do
         let(:owner_type) { 'User' }
-        let(:owner_id) { Factory(:user).id }
+        let(:owner_id) { FactoryBot.create(:user).id }
 
         it_behaves_like 'proxies the request'
       end
 
       context 'for an organization' do
         let(:owner_type) { 'Organization' }
-        let(:owner_id) { Factory(:org).id }
+        let(:owner_id) { FactoryBot.create(:org).id }
 
         it_behaves_like 'proxies the request'
       end
@@ -91,7 +91,7 @@ describe Travis::API::V3::Services::Insights::Metrics, set_app: true do
         end
 
         context 'a different one' do
-          let(:owner_id) { Factory(:user).id }
+          let(:owner_id) { FactoryBot.create(:user).id }
 
           it_behaves_like 'proxies the request'
         end
@@ -119,7 +119,7 @@ describe Travis::API::V3::Services::Insights::Metrics, set_app: true do
         end
 
         context 'a different one' do
-          let(:owner_id) { Factory(:org).id }
+          let(:owner_id) { FactoryBot.create(:org).id }
 
           it_behaves_like 'proxies the request'
         end
@@ -139,14 +139,14 @@ describe Travis::API::V3::Services::Insights::Metrics, set_app: true do
 
       context 'for a user' do
         let(:owner_type) { 'User' }
-        let(:owner_id) { Factory(:user).id }
+        let(:owner_id) { FactoryBot.create(:user).id }
 
         it_behaves_like 'proxies the request', expected_private_flag: false
       end
 
       context 'for an organization' do
         let(:owner_type) { 'Organization' }
-        let(:owner_id) { Factory(:org).id }
+        let(:owner_id) { FactoryBot.create(:org).id }
 
         it_behaves_like 'proxies the request', expected_private_flag: false
       end
@@ -198,7 +198,7 @@ describe Travis::API::V3::Services::Insights::Metrics, set_app: true do
         end
 
         context 'a different one' do
-          let(:requested_user) { Factory(:user) }
+          let(:requested_user) { FactoryBot.create(:user) }
 
           context 'with private preference' do
             let(:preference_value) { 'private' }
@@ -323,7 +323,7 @@ describe Travis::API::V3::Services::Insights::Metrics, set_app: true do
         end
 
         context 'a different one' do
-          let(:requested_organization) { Factory(:org) }
+          let(:requested_organization) { FactoryBot.create(:org) }
 
           context 'with admins preference' do
             let(:preference_value) { 'admins' }

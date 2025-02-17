@@ -3,6 +3,7 @@ require 'coercible'
 require 'travis/settings'
 require 'travis/settings/encrypted_value'
 require 'openssl'
+require 'ssh_data'
 
 class Repository::Settings < Travis::Settings
   class EnvVar < Travis::Settings::Model
@@ -35,6 +36,19 @@ class Repository::Settings < Travis::Settings
       key = OpenSSL::PKey::RSA.new(value.decrypt, '')
       raise NotAPrivateKeyError unless key.private?
     rescue OpenSSL::PKey::RSAError, NotAPrivateKeyError
+      validate_nonrsa
+    end
+
+    def validate_nonrsa
+      keys = SSHData::PrivateKey.parse_openssh(value.decrypt)
+      add_errors unless keys.any?
+    rescue SSHData::DecodeError
+      add_errors
+    rescue SSHData::DecryptError
+      errors.add(:value, :key_with_a_passphrase)
+    end
+
+    def add_errors
       # it seems there is no easy way to check if key
       # needs a pass phrase with ruby's openssl bindings,
       # that's why we need to manually check that
@@ -76,8 +90,7 @@ class Repository::Settings < Travis::Settings
 
       def max_value(settings, type)
         config = Travis.config.settings.timeouts.to_h
-        key = custom_timeouts?(settings) ? :maximums : :defaults
-        values = config[key] || {}
+        values = config[:maximums] || {}
 
         values[type]
       end
@@ -92,6 +105,7 @@ class Repository::Settings < Travis::Settings
   attribute :builds_only_with_travis_yml, Boolean, default: false
   attribute :build_pushes, Boolean, default: true
   attribute :build_pull_requests, Boolean, default: true
+  attribute :build_releases, Boolean, default: true
   attribute :maximum_number_of_builds, Integer
   attribute :ssh_key, SshKey
   attribute :timeout_hard_limit
@@ -100,12 +114,21 @@ class Repository::Settings < Travis::Settings
   attribute :auto_cancel_pushes, Boolean, default: lambda { |s, _| s.auto_cancel_default? }
   attribute :auto_cancel_pull_requests, Boolean, default: lambda { |s, _| s.auto_cancel_default? }
   attribute :allow_config_imports, Boolean, default: false
+  attribute :share_encrypted_env_with_forks, Boolean, default: false
+  attribute :share_ssh_keys_with_forks, Boolean, default: nil
+  attribute :job_log_time_based_limit, Boolean, default: lambda { |s, _| s.job_log_access_permissions[:time_based_limit] }
+  attribute :job_log_access_based_limit, Boolean, default: lambda { |s, _| s.job_log_access_permissions[:access_based_limit] }
+  attribute :job_log_access_older_than_days, Integer, default: lambda { |s, _| s.job_log_access_permissions[:older_than_days] }
 
   validates :maximum_number_of_builds, numericality: true
 
   validate :api_builds_rate_limit_restriction
 
   validates_with TimeoutsValidator
+
+  def job_log_access_permissions
+    Travis.config.to_h.fetch(:job_log_access_permissions) { {} }
+  end
 
   def auto_cancel_default?
     ENV.fetch('AUTO_CANCEL_DEFAULT', 'false') == 'true'
@@ -147,6 +170,17 @@ class Repository::Settings < Travis::Settings
 
   def repository
     Repository.find(repository_id)
+  end
+
+  def handle_ssh_share(id)
+    if self.share_ssh_keys_with_forks.nil?
+      self.share_ssh_keys_with_forks = false
+      return unless ENV['IBM_REPO_SWITCHES_DATE']
+
+       repo = Repository.find(id)
+       self.share_ssh_keys_with_forks = repo.created_at <= Date.parse(ENV['IBM_REPO_SWITCHES_DATE']) if repo
+
+    end
   end
 end
 

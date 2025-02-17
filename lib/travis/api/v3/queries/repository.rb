@@ -1,7 +1,7 @@
 module Travis::API::V3
   class Queries::Repository < Query
     setup_sidekiq(:repo_sync, queue: :sync, class_name: "Travis::GithubSync::Worker")
-    params :id, :slug
+    params :id, :slug, :server_type
 
     def find
       @find ||= find!
@@ -29,7 +29,7 @@ module Travis::API::V3
 
     def update(attrs)
       repository = find
-      repository.update_attributes!(attrs)
+      repository.update!(attrs)
       repository
     end
 
@@ -37,17 +37,30 @@ module Travis::API::V3
 
     def find!
       return by_slug if slug
-      return Models::Repository.find_by_id(id) if id
+      return Models::Repository.find_by_id(id) if id && !id.match(/\D/)
       raise WrongParams, 'missing repository.id'.freeze
     end
 
     def by_slug
       owner_name, repo_name = slug.split('/')
-      Models::Repository.where(
-        "LOWER(repositories.owner_name) = ? AND LOWER(repositories.name) = ? AND repositories.invalidated_at IS NULL",
+      repos = Models::Repository.where(
+        "(lower(repositories.vcs_slug) = ? "\
+        "or (lower(repositories.owner_name) = ? and lower(repositories.name) = ?)) "\
+        "and lower(repositories.vcs_type) = ? "\
+        "and repositories.invalidated_at is null",
+        slug.downcase,
         owner_name.downcase,
-        repo_name.downcase
-      ).order("updated_at DESC").first
+        repo_name.downcase,
+        "#{provider.downcase}repository"
+      )
+      repos = repos.by_server_type(server_type) if server_type && provider == 'assembla'
+
+      repos.order("updated_at desc, vcs_slug asc, owner_name asc, name asc, vcs_type asc")
+           .first
+    end
+
+    def provider
+      params['provider'] || 'github'
     end
   end
 end

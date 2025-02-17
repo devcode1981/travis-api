@@ -5,6 +5,18 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
   let(:jobs)  { Travis::API::V3::Models::Build.find(build.id).jobs }
   let(:parsed_body) { JSON.load(body) }
 
+  let(:authorization) { { 'permissions' => ['repository_state_update', 'repository_build_create', 'repository_settings_create', 'repository_settings_update', 'repository_cache_view', 'repository_cache_delete', 'repository_settings_delete', 'repository_log_view', 'repository_log_delete', 'repository_build_cancel', 'repository_build_debug', 'repository_build_restart', 'repository_settings_read', 'repository_scans_view'] } }
+
+  let(:authorization_role) { { 'roles' => ['repository_admin'] } }
+
+  before do
+    stub_request(:get, %r((.+)/permissions/repo/(.+))).to_return(status: 200, body: JSON.generate(authorization)) 
+    stub_request(:get, %r((.+)/roles/repo/(.+))).to_return(status: 200, body: JSON.generate(authorization_role))
+    stub_request(:post,  'http://billingfake.travis-ci.com/usage/stats')
+      .with(body: "{\"owners\":[{\"id\":1,\"type\":\"User\"}],\"query\":\"trial_allowed\"}")
+      .to_return(status: 200, body: "{\"trial_allowed\": false }", headers: {})
+  end
+
   let(:permissions) do
     {
       admin: {
@@ -19,6 +31,19 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
         "create_env_var"   => true,
         "create_key_pair"  => true,
         "delete_key_pair"  => true,
+        "check_scan_results" => true,
+        "build_cancel"     => true,
+        "build_create"     => true,
+        "build_debug"      => true,
+        "build_restart"    => true,
+        "cache_delete"     => true,
+        "cache_view"       => true,
+        "settings_create"  => true,
+        "settings_delete"  => true,
+        "settings_read"    => true,
+        "settings_update"  => true,
+        "log_delete"       => true,
+        "log_view"         => true,
         "admin"            => true
       },
       full_access: {
@@ -33,6 +58,19 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
         "create_env_var"   => true,
         "create_key_pair"  => true,
         "delete_key_pair"  => true,
+        "check_scan_results" => true,
+        "build_cancel"     => true,
+        "build_create"     => true,
+        "build_debug"      => true,
+        "build_restart"    => true,
+        "cache_delete"     => true,
+        "cache_view"       => true,
+        "settings_create"  => true,
+        "settings_delete"  => true,
+        "settings_read"    => true,
+        "settings_update"  => true,
+        "log_delete"       => true,
+        "log_view"         => true,
         "admin"            => false
       },
       read_and_star: {
@@ -47,6 +85,19 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
         "create_env_var"   => false,
         "create_key_pair"  => false,
         "delete_key_pair"  => false,
+        "check_scan_results" => false,
+        "build_cancel"     => false,
+        "build_create"     => false,
+        "build_debug"      => false,
+        "build_restart"    => false,
+        "cache_delete"     => false,
+        "cache_view"       => false,
+        "settings_create"  => false,
+        "settings_delete"  => false,
+        "settings_read"    => true,
+        "settings_update"  => false,
+        "log_delete"       => false,
+        "log_view"         => true,
         "admin"            => false
       },
       read: {
@@ -61,6 +112,19 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
         "create_env_var"   => false,
         "create_key_pair"  => false,
         "delete_key_pair"  => false,
+        "check_scan_results" => false,
+        "build_cancel"     => false,
+        "build_create"     => false,
+        "build_debug"      => false,
+        "build_restart"    => false,
+        "cache_delete"     => false,
+        "cache_view"       => false,
+        "settings_create"  => false,
+        "settings_delete"  => false,
+        "settings_read"    => true,
+        "settings_update"  => false,
+        "log_delete"       => false,
+        "log_view"         => true,
         "admin"            => false
       }
     }
@@ -78,13 +142,21 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
       "slug"               => "svenfuchs/minimal",
       "description"        => nil,
       "github_id"          => repo.github_id,
+      "vcs_id"             => repo.vcs_id,
+      "vcs_type"           => repo.vcs_type,
+      "owner_name"         => "svenfuchs",
+      "vcs_name"           => "minimal",
       "github_language"    => nil,
       "active"             => true,
       "private"            => opts[:private],
+      "server_type"        => 'git',
+      "shared"             => false,
+      "scan_failed_at"     => nil,
       "owner"              => {
         "id"               => repo.owner_id,
         "login"            => "svenfuchs",
         "@type"            => "user",
+        "ro_mode"          => true,
         "@href"            => "/v3/user/#{repo.owner_id}"},
       "default_branch"     => {
         "@type"            => "branch",
@@ -95,7 +167,8 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
       "active_on_org"      => nil,
       "managed_by_installation" => false,
       "migration_status"   => nil,
-      "history_migration_status" => nil
+      "history_migration_status" => nil,
+      "config_validation"  => false
     })}
   end
 
@@ -127,7 +200,7 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
     before {
       Travis::API::V3::Models::Repository.create!(
         id: 12345,
-        name: 'Minimal', 
+        name: 'Minimal',
         url: "http://github.com/svenfuchs/Minimal",
         owner_name: "svenfuchs",
         owner_email: "svenfuchs@artweb-design.de",
@@ -137,7 +210,8 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
         owner_id: 1,
         owner_type: "User",
         last_build_state: "passed",
-        github_id: 12345
+        github_id: 12345,
+        server_type: 'git'
       )
       get("/v3/repo/svenfuchs%2FMinimal")
     }
@@ -165,11 +239,28 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
     let(:token)   { Travis::Api::App::AccessToken.create(user: repo.owner, app_id: 1) }
     let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}" }}
     before        { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: true, admin: false) }
+    let(:authorization_role) { { 'roles' => [] } }
+  end
+
+  shared_examples 'authenticated as a user with admin permissions' do
+    let(:token)   { Travis::Api::App::AccessToken.create(user: repo.owner, app_id: 1) }
+    let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}" }}
+    before        { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: true, admin: true) }
+  end
+
+  shared_examples 'authenticated as as internal application with full access' do |opts|
+    let(:app_name)   { 'travis-example' }
+    let(:app_secret) { '12345678' }
+    let(:sign_opts)  { "a=#{app_name}" }
+    let(:signature)  { OpenSSL::HMAC.hexdigest('sha256', app_secret, sign_opts) }
+    let(:headers)    { { 'HTTP_AUTHORIZATION' => "signature #{sign_opts}:#{signature}" } }
+    before { Travis.config.applications = { app_name => { full_access: true, secret: app_secret } } }
   end
 
   shared_examples 'allows unauthenticated access to a public repo' do
     describe 'public repo' do
       before { get("/v3/repo/#{repo.id}") }
+      let(:authorization_role) { { 'roles' => [] } }
       include_examples '200 standard representation', permissions: :read, private: false
     end
 
@@ -204,6 +295,8 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
     describe 'public repo as a user with permissions' do
       include_examples 'authenticated as a user with permissions'
       before { get("/v3/repo/#{repo.id}", {}, headers) }
+
+      let(:authorization_role) { { 'roles' => [] } }
       include_examples '200 standard representation', permissions: :read_and_star, private: false
     end
   end
@@ -213,6 +306,8 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
       include_examples 'private repo'
       include_examples 'authenticated as a user with permissions'
       before { get("/v3/repo/#{repo.id}", {}, headers) }
+
+      let(:authorization_role) { { 'roles' => [] } }
       include_examples '200 standard representation', permissions: :read_and_star, private: true
     end
   end
@@ -221,6 +316,8 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
     describe 'public repo as a user without permissions' do
       include_examples 'authenticated as a user without permissions'
       before { get("/v3/repo/#{repo.id}", {}, headers) }
+
+      let(:authorization_role) { { 'roles' => [] } }
       include_examples '200 standard representation', permissions: :read, private: false
     end
   end
@@ -280,16 +377,22 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
 
   describe 'config.public_mode being false' do
     before { Travis.config.public_mode = false }
+
+    let(:authorization) { { 'permissions' => ['repository_log_view', 'repository_settings_read'] } }
     include_examples 'private mode'
   end
 
   describe 'config.public_mode being unset (defaults to false)' do
     before { Travis.config.public_mode = nil }
+
+    let(:authorization) { { 'permissions' => ['repository_log_view', 'repository_settings_read'] } }
     include_examples 'private mode'
   end
 
   describe 'config.public_mode being true' do
     before { Travis.config.public_mode = true }
+    let(:authorization_role) { { 'roles' => [] } }
+    let(:authorization) { { 'permissions' => ['repository_log_view', 'repository_settings_read'] } }
     include_examples 'public mode'
   end
 
@@ -297,6 +400,9 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
     before { Travis.config.public_mode = false }
     before { Travis::Features.activate_owner(:public_mode, repo.owner) }
     after  { Travis::Features.deactivate_owner(:public_mode, repo.owner) }
+
+    let(:authorization) { { 'permissions' => ['repository_log_view', 'repository_settings_read'] } }
+    let(:authorization_role) { { 'roles' => [] } }
     include_examples 'public mode'
   end
 
@@ -312,6 +418,7 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
     before { get("/v3/repo/#{repo.id}", {}, headers) }
     before { repo.update_attribute(:private, false) }
 
+    let(:authorization_role) { { 'roles' => [] } }
     include_examples '200 standard representation', permissions: :full_access, private: true
   end
 
@@ -349,6 +456,53 @@ describe Travis::API::V3::Services::Repository::Find, set_app: true do
       "id"    => repo.owner_id,
       "login" => "svenfuchs",
     )}
+  end
+
+  describe 'representation internal' do
+    shared_examples 'responds with the internal representation' do |opts|
+      it { expect(parsed_body['@representation']).to eq 'internal' }
+      it { expect(parsed_body['token']).to eq token }
+      it { expect(parsed_body['private_key']).to include 'RSA PRIVATE KEY' }
+      it { expect(parsed_body['user_settings']['@type']).to eq 'settings' }
+    end
+
+    shared_examples 'responds with the standard representation' do |opts|
+      it { expect(parsed_body['@representation']).to eq 'standard' }
+      it { expect(parsed_body['token']).to be_nil }
+      it { expect(parsed_body['private_key']).to be_nil }
+      it { expect(parsed_body['user_settings']).to be_nil }
+    end
+
+    describe 'authenticated as internal application with full access' do
+      describe 'managed by oauth token' do
+        let(:token) { 'github_oauth_token' }
+        include_examples 'authenticated as as internal application with full access'
+        before { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: true, admin: true) }
+        before { get("/v3/repo/#{repo.id}?representation=internal", {}, headers) }
+        include_examples 'responds with the internal representation'
+      end
+
+      describe 'managed by github installation' do
+        let(:token) { 'app_token' }
+        include_examples 'authenticated as as internal application with full access'
+        before { Travis::API::V3::Models::Installation.create(owner: repo.owner, github_id: 1) }
+        before { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: true, admin: true) }
+        before { stub_request(:post, 'https://api.github.com/app/installations/1/access_tokens').to_return(status: 201, body: JSON.dump(token: 'app_token')) }
+        before { get("/v3/repo/#{repo.id}?representation=internal", {}, headers) }
+        include_examples 'responds with the internal representation'
+      end
+    end
+
+    describe 'anonymous' do
+      before { get("/v3/repo/#{repo.id}?representation=internal") }
+      include_examples 'responds with the standard representation'
+    end
+
+    describe 'authenticated as a user with admin permissions' do
+      include_examples 'authenticated as a user with admin permissions'
+      before { get("/v3/repo/#{repo.id}?representation=internal") }
+      include_examples 'responds with the standard representation'
+    end
   end
 
   describe "including full owner" do

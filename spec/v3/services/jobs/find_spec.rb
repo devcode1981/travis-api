@@ -11,12 +11,18 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
     # TODO should this go into the scenario? is it ok to keep it here?
     test   = build.stages.create(number: 1, name: 'test')
     deploy = build.stages.create(number: 2, name: 'deploy')
-    jobs[0, 2].each { |job| job.update_attributes!(stage: test) }
-    jobs[2, 2].each { |job| job.update_attributes!(stage: deploy) }
+    jobs[0, 2].each { |job| job.update!(stage: test) }
+    jobs[2, 2].each { |job| job.update!(stage: deploy) }
     jobs.each(&:reload)
   end
 
+  let(:authorization) { { 'permissions' => ['repository_state_update', 'repository_build_create', 'repository_settings_create', 'repository_settings_update', 'repository_cache_view', 'repository_cache_delete', 'repository_settings_delete', 'repository_log_view', 'repository_log_delete', 'repository_build_cancel', 'repository_build_debug', 'repository_build_restart', 'repository_settings_read', 'repository_scans_view'] } }
+
+  before { stub_request(:get, %r((.+)/permissions/repo/(.+))).to_return(status: 200, body: JSON.generate(authorization)) }
+
   describe "jobs on public repository" do
+
+    let(:authorization) { { 'permissions' => ['repository_log_view', 'repository_settings_read'] } }
     before     { get("/v3/build/#{build.id}/jobs?include=job.config") }
     example    { expect(last_response).to be_ok }
     example    { expect(parsed_body).to eql_json({
@@ -32,9 +38,13 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "cancel"              => false,
           "restart"             => false,
           "debug"               => false,
-          "delete_log"          => false },
+          "delete_log"          => false,
+          "view_log"            => true,
+          "prioritize"          => false },
         "id"                    => jobs[0].id,
         "private"          => false,
+        "restarted_at"          => nil,
+        "restarted_by"          => nil,
         "number"                => "#{jobs[0].number}",
         "state"                 => "configured",
         "started_at"            => "2010-11-12T13:00:00Z",
@@ -42,6 +52,7 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
         "allow_failure"         => jobs[0].allow_failure,
         "created_at"            => json_format_time_with_ms(jobs[0].created_at),
         "updated_at"            => json_format_time_with_ms(jobs[0].updated_at),
+        "vm_size"               => nil,
         "config"                => {
           "rvm"                 => "1.8.7",
           "gemfile"             => "test/Gemfile.rails-2.3.x",
@@ -55,6 +66,7 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "@representation"     => "minimal",
           "id"                  => build.id,
           "private"        => false,
+          "priority"            => false,
           "number"              => build.number,
           "state"               => "configured",
           "duration"            => nil,
@@ -95,7 +107,10 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "@href"               => "/v3/user/1",
           "@representation"     => "minimal",
           "id"                  => 1,
-          "login"               => "svenfuchs"}},
+          "vcs_type"            => 'GithubUser',
+          "ro_mode"             => false,
+          "login"               => "svenfuchs",
+          "name"                => "Sven Fuchs"}},
         {"@type"                => "job",
         "@href"                 => "/v3/job/#{jobs[1].id}",
         "@representation"       => "standard",
@@ -104,9 +119,13 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "cancel"              => false,
           "restart"             => false,
           "debug"               => false,
-          "delete_log"          => false},
+          "delete_log"          => false,
+          "view_log"            => true,
+          "prioritize"          => false},
         "id"                    => jobs[1].id,
         "private"          => false,
+        "restarted_at"          => nil,
+        "restarted_by"          => nil,
         "number"                => "#{jobs[1].number}",
         "state"                 => "configured",
         "started_at"            => "2010-11-12T13:00:00Z",
@@ -114,6 +133,7 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
         "allow_failure"         => jobs[1].allow_failure,
         "created_at"            => json_format_time_with_ms(jobs[1].created_at),
         "updated_at"            => json_format_time_with_ms(jobs[1].updated_at),
+        "vm_size"               => nil,
         "config"                => {
           "rvm"                 => "1.8.7",
           "gemfile"             => "test/Gemfile.rails-3.0.x",
@@ -127,6 +147,7 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "@representation"     => "minimal",
           "id"                  => build.id,
           "private"        => false,
+          "priority"            => false,
           "number"              => build.number,
           "state"               => "configured",
           "duration"            => nil,
@@ -167,7 +188,10 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "@href"               => "/v3/user/1",
           "@representation"     => "minimal",
           "id"                  => 1,
-          "login"               => "svenfuchs"}},
+          "vcs_type"            => 'GithubUser',
+          "ro_mode"             => false,
+          "login"               => "svenfuchs",
+          "name"                => "Sven Fuchs"}},
         {"@type"                => "job",
         "@href"                 => "/v3/job/#{jobs[2].id}",
         "@representation"       => "standard",
@@ -176,9 +200,13 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "cancel"              => false,
           "restart"             => false,
           "debug"               => false,
-          "delete_log"          => false},
+          "delete_log"          => false,
+          "view_log"            => true,
+          "prioritize"          => false},
         "id"                    => jobs[2].id,
         "private"          => false,
+        "restarted_at"          => nil,
+        "restarted_by"          => nil,
         "number"                => "#{jobs[2].number}",
         "state"                 => "configured",
         "started_at"            => "2010-11-12T13:00:00Z",
@@ -186,6 +214,7 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
         "allow_failure"         => jobs[2].allow_failure,
         "created_at"            => json_format_time_with_ms(jobs[2].created_at),
         "updated_at"            => json_format_time_with_ms(jobs[2].updated_at),
+        "vm_size"               => nil,
         "config"                => {
           "rvm"                 => "1.9.2",
           "gemfile"             => "test/Gemfile.rails-2.3.x",
@@ -199,6 +228,7 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "@representation"     => "minimal",
           "id"                  => build.id,
           "private"        => false,
+          "priority"            => false,
           "number"              => build.number,
           "state"               => "configured",
           "duration"            => nil,
@@ -239,7 +269,10 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "@href"               => "/v3/user/1",
           "@representation"     => "minimal",
           "id"                  => 1,
-          "login"               => "svenfuchs"}},
+          "vcs_type"            => 'GithubUser',
+          "ro_mode"             => false,
+          "login"               => "svenfuchs",
+          "name"                => "Sven Fuchs"}},
         {"@type"                => "job",
         "@href"                 => "/v3/job/#{jobs[3].id}",
         "@representation"       => "standard",
@@ -248,9 +281,13 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "cancel"              => false,
           "restart"             => false,
           "debug"               => false,
-          "delete_log"          => false},
+          "delete_log"          => false,
+          "view_log"            => true,
+          "prioritize"          => false},
         "id"                    => jobs[3].id,
         "private"          => false,
+        "restarted_at"          => nil,
+        "restarted_by"          => nil,
         "number"                => "#{jobs[3].number}",
         "state"                 => "configured",
         "started_at"            => "2010-11-12T13:00:00Z",
@@ -258,6 +295,7 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
         "allow_failure"         => jobs[3].allow_failure,
         "created_at"            => json_format_time_with_ms(jobs[3].created_at),
         "updated_at"            => json_format_time_with_ms(jobs[3].updated_at),
+        "vm_size"               => nil,
         "config"                => {
           "rvm"                 => "1.9.2",
           "gemfile"             => "test/Gemfile.rails-3.0.x",
@@ -271,6 +309,7 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "@representation"     => "minimal",
           "id"                  => build.id,
           "private"        => false,
+          "priority"            => false,
           "number"              => build.number,
           "state"               => "configured",
           "duration"            => nil,
@@ -311,13 +350,18 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "@href"               => "/v3/user/1",
           "@representation"     => "minimal",
           "id"                  => 1,
-          "login"               => "svenfuchs"}}
+          "vcs_type"            => 'GithubUser',
+          "ro_mode"             => false,
+          "login"               => "svenfuchs",
+          "name"                => "Sven Fuchs"}}
         ]
       })
     }
   end
 
   describe "jobs private repository, private API, authenticated as user with pull access" do
+
+  let(:authorization) { { 'permissions' => ['repository_log_view', 'repository_build_cancel', 'repository_build_restart', 'repository_settings_read', 'repository_scans_view'] } }
     let(:token)   { Travis::Api::App::AccessToken.create(user: repo.owner, app_id: 1) }
     let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}"                        }}
     before        { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: true) }
@@ -338,9 +382,13 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "cancel"              => true,
           "restart"             => true,
           "debug"               => false,
-          "delete_log"          => false },
+          "delete_log"          => false,
+          "view_log"            => true,
+          "prioritize"          => false },
         "id"                    => jobs[0].id,
         "private"          => false,
+        "restarted_at"          => nil,
+        "restarted_by"          => nil,
         "number"                => "#{jobs[0].number}",
         "state"                 => "configured",
         "started_at"            => "2010-11-12T13:00:00Z",
@@ -348,6 +396,7 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
         "allow_failure"         => jobs[0].allow_failure,
         "created_at"            => json_format_time_with_ms(jobs[0].created_at),
         "updated_at"            => json_format_time_with_ms(jobs[0].updated_at),
+        "vm_size"               => nil,
         "config"                => {
           "rvm"                 => "1.8.7",
           "gemfile"             => "test/Gemfile.rails-2.3.x",
@@ -361,6 +410,7 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "@representation"     => "minimal",
           "id"                  => build.id,
           "private"        => false,
+          "priority"            => false,
           "number"              => build.number,
           "state"               => "configured",
           "duration"            => nil,
@@ -401,7 +451,10 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "@href"               => "/v3/user/1",
           "@representation"     => "minimal",
           "id"                  => 1,
-          "login"               => "svenfuchs"}},
+          "vcs_type"            => 'GithubUser',
+          "ro_mode"             => true,
+          "login"               => "svenfuchs",
+          "name"                => "Sven Fuchs"}},
         {"@type"                => "job",
         "@href"                 => "/v3/job/#{jobs[1].id}",
         "@representation"       => "standard",
@@ -410,15 +463,20 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "cancel"              => true,
           "restart"             => true,
           "debug"               => false,
-          "delete_log"          => false },
+          "delete_log"          => false,
+          "view_log"            => true,
+          "prioritize"          => false },
         "id"                    => jobs[1].id,
         "private"          => false,
+        "restarted_at"          => nil,
+        "restarted_by"          => nil,
         "number"                => "#{jobs[1].number}",
         "state"                 => "configured",
         "started_at"            => "2010-11-12T13:00:00Z",
         "allow_failure"         => jobs[1].allow_failure,
         "created_at"            => json_format_time_with_ms(jobs[1].created_at),
         "updated_at"            => json_format_time_with_ms(jobs[1].updated_at),
+        "vm_size"               => nil,
         "config"                => {
           "rvm"                 => "1.8.7",
           "gemfile"             => "test/Gemfile.rails-3.0.x",
@@ -433,6 +491,7 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "@representation"     => "minimal",
           "id"                  => build.id,
           "private"        => false,
+          "priority"            => false,
           "number"              => build.number,
           "state"               => "configured",
           "duration"            => nil,
@@ -473,7 +532,10 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "@href"               => "/v3/user/1",
           "@representation"     => "minimal",
           "id"                  => 1,
-          "login"               => "svenfuchs"}},
+          "vcs_type"            => 'GithubUser',
+          "ro_mode"             => true,
+          "login"               => "svenfuchs",
+          "name"                => "Sven Fuchs"}},
         {"@type"                => "job",
         "@href"                 => "/v3/job/#{jobs[2].id}",
         "@representation"       => "standard",
@@ -482,9 +544,13 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "cancel"              => true,
           "restart"             => true,
           "debug"               => false,
-          "delete_log"          => false },
+          "delete_log"          => false,
+          "view_log"            => true,
+          "prioritize"          => false },
         "id"                    => jobs[2].id,
         "private"          => false,
+        "restarted_at"          => nil,
+        "restarted_by"          => nil,
         "number"                => "#{jobs[2].number}",
         "state"                 => "configured",
         "started_at"            => "2010-11-12T13:00:00Z",
@@ -492,6 +558,7 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
         "allow_failure"         => jobs[2].allow_failure,
         "created_at"            => json_format_time_with_ms(jobs[2].created_at),
         "updated_at"            => json_format_time_with_ms(jobs[2].updated_at),
+        "vm_size"               => nil,
         "config"                => {
           "rvm"                 => "1.9.2",
           "gemfile"             => "test/Gemfile.rails-2.3.x",
@@ -505,6 +572,7 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "@representation"     => "minimal",
           "id"                  => build.id,
           "private"        => false,
+          "priority"            => false,
           "number"              => build.number,
           "state"               => "configured",
           "duration"            => nil,
@@ -545,7 +613,10 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "@href"               => "/v3/user/1",
           "@representation"     => "minimal",
           "id"                  => 1,
-          "login"               => "svenfuchs"}},
+          "vcs_type"            => 'GithubUser',
+          "ro_mode"             => true,
+          "login"               => "svenfuchs",
+          "name"                => "Sven Fuchs"}},
         {"@type"                => "job",
         "@href"                 => "/v3/job/#{jobs[3].id}",
         "@representation"       => "standard",
@@ -554,9 +625,13 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "cancel"              => true,
           "restart"             => true,
           "debug"               => false,
-          "delete_log"          => false },
+          "delete_log"          => false,
+          "view_log"            => true,
+          "prioritize"          => false },
         "id"                    => jobs[3].id,
         "private"          => false,
+        "restarted_at"          => nil,
+        "restarted_by"          => nil,
         "number"                => "#{jobs[3].number}",
         "state"                 => "configured",
         "started_at"            => "2010-11-12T13:00:00Z",
@@ -564,6 +639,7 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
         "allow_failure"         => jobs[3].allow_failure,
         "created_at"            => json_format_time_with_ms(jobs[3].created_at),
         "updated_at"            => json_format_time_with_ms(jobs[3].updated_at),
+        "vm_size"               => nil,
         "config"                => {
           "rvm"                 => "1.9.2",
           "gemfile"             => "test/Gemfile.rails-3.0.x",
@@ -577,6 +653,7 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "@representation"     => "minimal",
           "id"                  => build.id,
           "private"        => false,
+          "priority"            => false,
           "number"              => build.number,
           "state"               => "configured",
           "duration"            => nil,
@@ -616,8 +693,11 @@ describe Travis::API::V3::Services::Jobs::Find, set_app: true do
           "@type"               => "user",
           "@href"               => "/v3/user/1",
           "@representation"     => "minimal",
+          "ro_mode"             => true,
           "id"                  => 1,
-          "login"               => "svenfuchs"}}
+          "vcs_type"            => 'GithubUser',
+          "login"               => "svenfuchs",
+          "name"                => "Sven Fuchs"}}
         ]
       })
     }
@@ -627,8 +707,9 @@ describe "jobs private repository, private API, authenticated as user with push 
     let(:token)   { Travis::Api::App::AccessToken.create(user: repo.owner, app_id: 1) }
     let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}"                        }}
     before        { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: true, push: true) }
-    before        { Travis::API::V3::Permissions::Job.any_instance.stubs(:delete_log?).returns(true) }
-    before        { Travis::API::V3::Permissions::Job.any_instance.stubs(:debug?).returns(true) }
+    before        { allow_any_instance_of(Travis::API::V3::Permissions::Job).to receive(:delete_log?).and_return(true) }
+    before        { allow_any_instance_of(Travis::API::V3::Permissions::Job).to receive(:debug?).and_return(true) }
+    before        { allow_any_instance_of(Travis::API::V3::Permissions::Job).to receive(:prioritize?).and_return(true) }
     before        { repo.update_attribute(:private, true)                             }
     before        { get("/v3/build/#{build.id}/jobs?include=job.config", {}, headers)                           }
     after         { repo.update_attribute(:private, false)                            }
@@ -646,9 +727,13 @@ describe "jobs private repository, private API, authenticated as user with push 
           "cancel"         => true,
           "restart"        => true,
           "debug"          => true,
-          "delete_log"     => true },
+          "delete_log"     => true,
+          "view_log"       => true,
+          "prioritize"     => true },
         "id"               => jobs[0].id,
         "private"          => false,
+        "restarted_at"     => nil,
+        "restarted_by"     => nil,
         "number"           => "#{jobs[0].number}",
         "state"            => "configured",
         "started_at"       => "2010-11-12T13:00:00Z",
@@ -656,6 +741,7 @@ describe "jobs private repository, private API, authenticated as user with push 
         "allow_failure"    => jobs[0].allow_failure,
         "created_at"       => json_format_time_with_ms(jobs[0].created_at),
         "updated_at"       => json_format_time_with_ms(jobs[0].updated_at),
+        "vm_size"          => nil,
         "config"           => {
           "rvm"            => "1.8.7",
           "gemfile"        => "test/Gemfile.rails-2.3.x",
@@ -669,6 +755,7 @@ describe "jobs private repository, private API, authenticated as user with push 
           "@representation"=> "minimal",
           "id"             => build.id,
           "private"        => false,
+          "priority"       => false,
           "number"         => build.number,
           "state"          => "configured",
           "duration"       => nil,
@@ -709,7 +796,10 @@ describe "jobs private repository, private API, authenticated as user with push 
           "@href"          => "/v3/user/1",
           "@representation"=> "minimal",
           "id"             =>  1,
-          "login"          => "svenfuchs"}},
+          "vcs_type"       => 'GithubUser',
+          "ro_mode"        => true,
+          "login"          => "svenfuchs",
+          "name"           => "Sven Fuchs"}},
         {"@type"            => "job",
         "@href"            => "/v3/job/#{jobs[1].id}",
         "@representation"  => "standard",
@@ -718,9 +808,13 @@ describe "jobs private repository, private API, authenticated as user with push 
           "cancel"         => true,
           "restart"        => true,
           "debug"          => true,
-          "delete_log"     => true },
+          "delete_log"     => true,
+          "view_log"       => true,
+          "prioritize"     => true },
         "id"               => jobs[1].id,
         "private"          => false,
+        "restarted_at"     => nil,
+        "restarted_by"     => nil,
         "number"           => "#{jobs[1].number}",
         "state"            => "configured",
         "started_at"       => "2010-11-12T13:00:00Z",
@@ -728,6 +822,7 @@ describe "jobs private repository, private API, authenticated as user with push 
         "allow_failure"    => jobs[1].allow_failure,
         "created_at"       => json_format_time_with_ms(jobs[1].created_at),
         "updated_at"       => json_format_time_with_ms(jobs[1].updated_at),
+        "vm_size"          => nil,
         "config"           => {
           "rvm"            => "1.8.7",
           "gemfile"        => "test/Gemfile.rails-3.0.x",
@@ -741,6 +836,7 @@ describe "jobs private repository, private API, authenticated as user with push 
           "@representation"=> "minimal",
           "id"             => build.id,
           "private"        => false,
+          "priority"       => false,
           "number"         => build.number,
           "state"          => "configured",
           "duration"       => nil,
@@ -781,7 +877,10 @@ describe "jobs private repository, private API, authenticated as user with push 
           "@href"          => "/v3/user/1",
           "@representation"=> "minimal",
           "id"             =>  1,
-          "login"          => "svenfuchs"}},
+          "vcs_type"       => 'GithubUser',
+          "ro_mode"        => true,
+          "login"          => "svenfuchs",
+          "name"           => "Sven Fuchs"}},
         {"@type"            => "job",
         "@href"            => "/v3/job/#{jobs[2].id}",
         "@representation"  => "standard",
@@ -790,9 +889,13 @@ describe "jobs private repository, private API, authenticated as user with push 
           "cancel"         => true,
           "restart"        => true,
           "debug"          => true,
-          "delete_log"     => true },
+          "delete_log"     => true,
+          "view_log"       => true,
+          "prioritize"     => true },
         "id"               => jobs[2].id,
         "private"          => false,
+        "restarted_at"     => nil,
+        "restarted_by"     => nil,
         "number"           => "#{jobs[2].number}",
         "state"            => "configured",
         "started_at"       => "2010-11-12T13:00:00Z",
@@ -800,6 +903,7 @@ describe "jobs private repository, private API, authenticated as user with push 
         "allow_failure"    => jobs[2].allow_failure,
         "created_at"       => json_format_time_with_ms(jobs[2].created_at),
         "updated_at"       => json_format_time_with_ms(jobs[2].updated_at),
+        "vm_size"          => nil,
         "config"           => {
           "rvm"            => "1.9.2",
           "gemfile"        => "test/Gemfile.rails-2.3.x",
@@ -813,6 +917,7 @@ describe "jobs private repository, private API, authenticated as user with push 
           "@representation"=> "minimal",
           "id"             => build.id,
           "private"        => false,
+          "priority"       => false,
           "number"         => build.number,
           "state"          => "configured",
           "duration"       => nil,
@@ -853,7 +958,10 @@ describe "jobs private repository, private API, authenticated as user with push 
           "@href"          => "/v3/user/1",
           "@representation"=> "minimal",
           "id"             =>  1,
-          "login"          => "svenfuchs"}},
+          "vcs_type"       => 'GithubUser',
+          "ro_mode"        => true,
+          "login"          => "svenfuchs",
+          "name"           => "Sven Fuchs"}},
         {"@type"            => "job",
         "@href"            => "/v3/job/#{jobs[3].id}",
         "@representation"  => "standard",
@@ -862,9 +970,13 @@ describe "jobs private repository, private API, authenticated as user with push 
           "cancel"         => true,
           "restart"        => true,
           "debug"          => true,
-          "delete_log"     => true },
+          "delete_log"     => true,
+          "view_log"       => true,
+          "prioritize"     => true },
         "id"               => jobs[3].id,
         "private"          => false,
+        "restarted_at"     => nil,
+        "restarted_by"     => nil,
         "number"           => "#{jobs[3].number}",
         "state"            => "configured",
         "started_at"       => "2010-11-12T13:00:00Z",
@@ -872,6 +984,7 @@ describe "jobs private repository, private API, authenticated as user with push 
         "allow_failure"    => jobs[3].allow_failure,
         "created_at"       => json_format_time_with_ms(jobs[3].created_at),
         "updated_at"       => json_format_time_with_ms(jobs[3].updated_at),
+        "vm_size"          => nil,
         "config"           => {
           "rvm"            => "1.9.2",
           "gemfile"        => "test/Gemfile.rails-3.0.x",
@@ -885,6 +998,7 @@ describe "jobs private repository, private API, authenticated as user with push 
           "@representation"=> "minimal",
           "id"             => build.id,
           "private"        => false,
+          "priority"       => false,
           "number"         => build.number,
           "state"          => "configured",
           "duration"       => nil,
@@ -925,7 +1039,10 @@ describe "jobs private repository, private API, authenticated as user with push 
           "@href"          => "/v3/user/1",
           "@representation"=> "minimal",
           "id"             =>  1,
-          "login"          => "svenfuchs"}}
+          "vcs_type"       => 'GithubUser',
+          "ro_mode"        => true,
+          "login"          => "svenfuchs",
+          "name"           => "Sven Fuchs"}}
         ]
       })
     }

@@ -10,6 +10,15 @@ describe Travis::API::V3::Services::Repositories::ForCurrentUser, set_app: true 
   after         { repo.update_attribute(:private, false)                                        }
   before        { Travis::Features.activate_owner(:allow_migration, repo.owner) }
 
+  let(:authorization) { { 'permissions' => ['repository_state_update', 'repository_build_create', 'repository_settings_create', 'repository_settings_update', 'repository_cache_view', 'repository_cache_delete', 'repository_settings_delete', 'repository_log_view', 'repository_log_delete', 'repository_build_cancel', 'repository_build_debug', 'repository_build_restart', 'repository_settings_read', 'repository_scans_view'] } }
+
+  let(:authorization_role) { { 'roles' => ['repository_admin'] } }
+
+  before { stub_request(:get, %r((.+)/permissions/repo/(.+))).to_return(status: 200, body: JSON.generate(authorization)) }
+  before { stub_request(:get, %r((.+)/roles/repo/(.+))).to_return(status: 200, body: JSON.generate(authorization_role)) }
+  before { stub_request(:post, %r((.+)/permissions/repositories)).to_return(status: 400) }
+  before { stub_request(:post, %r((.+)/roles/repositories)).to_return(status: 400) }
+
   describe "private repository, private API, authenticated as user with access" do
     before  { get("/v3/repos", {}, headers)    }
     example { expect(last_response).to be_ok   }
@@ -49,20 +58,41 @@ describe Travis::API::V3::Services::Repositories::ForCurrentUser, set_app: true 
           "create_env_var"   => true,
           "create_key_pair"  => true,
           "delete_key_pair"  => true,
-          "admin"            => true
+          "check_scan_results" => true,
+          "admin"            => true,
+          "build_cancel"     =>true,
+          "build_create"     =>true,
+          "build_debug"      =>true,
+          "build_restart"    =>true,
+          "cache_delete"     =>true,
+          "cache_view"       =>true,
+          "settings_create"  =>true,
+          "settings_delete"  =>true,
+          "settings_read"    =>true,
+          "settings_update"  =>true,
+          "log_delete"       =>true,
+          "log_view"         =>true
         },
-        "id"                 =>  repo.id,
-        "name"               =>  "minimal",
-        "slug"               =>  "svenfuchs/minimal",
+        "id"                 => repo.id,
+        "name"               => "minimal",
+        "slug"               => "svenfuchs/minimal",
         "description"        => nil,
         "github_id"          => repo.github_id,
+        "vcs_id"             => repo.vcs_id,
+        "vcs_type"           => repo.vcs_type,
+        "owner_name"         => "svenfuchs",
+        "vcs_name"           => "minimal",
         "github_language"    => nil,
         "active"             => true,
         "private"            => true,
+        "server_type"        => 'git',
+        "shared"             => false,
+        "scan_failed_at"     => nil,
         "owner"              => {
           "@type"            => "user",
           "@href"            => "/v3/user/#{repo.owner_id}",
           "id"               => repo.owner_id,
+          "ro_mode"          => true,
           "login"            => "svenfuchs" },
         "default_branch"     => {
           "@type"            => "branch",
@@ -73,7 +103,8 @@ describe Travis::API::V3::Services::Repositories::ForCurrentUser, set_app: true 
         "managed_by_installation"=>false,
         "active_on_org"=>nil,
         "migration_status" => nil,
-        "history_migration_status" => nil
+        "history_migration_status" => nil,
+        "config_validation" => false
         }]
     }}
   end

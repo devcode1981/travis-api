@@ -1,6 +1,4 @@
 require 'sinatra/base'
-require 'mustermann'
-require 'travis/api/app'
 require 'travis/api/app/extensions'
 require 'travis/api/app/helpers'
 
@@ -8,8 +6,8 @@ class Travis::Api::App
   # Superclass for any endpoint and middleware.
   # Pulls in relevant helpers and extensions.
   class Base < Sinatra::Base
+    register Travis::Api::App::Extensions::Scoping
     register Extensions::SmartConstants
-    register Mustermann
 
     error NotImplementedError do
       content_type :txt

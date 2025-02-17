@@ -7,9 +7,7 @@ class Travis::Api::App
         halt 401 if private_mode? && !org? && !authenticated?
       end
 
-      set :pattern, capture: { id: /\d+/ }
-
-      get '/:id/cc', scope: [:public, :travis_token] do
+      get Mustermann.new('/:id/cc', capture: { id: /\d+/ }), scope: [:public, :travis_token] do
         respond_with service(:find_repo, params.merge(schema: 'cc')), responder: :xml
       end
 
@@ -22,6 +20,8 @@ class Travis::Api::App
       end
 
       get '/:owner_name/:name/builds', scope: [:public, :travis_token] do
+        halt 401 if scope == :travis_token && access_token.travis_token && !access_token.travis_token.rss? && access_token.user.tokens.rss.exists?
+
         respond_with service(:find_builds, params), responder: :atom, responders: :atom
       end
 
@@ -32,8 +32,6 @@ class Travis::Api::App
 
     class Repos < Endpoint
       before { authenticate_by_mode! }
-
-      set :pattern, capture: { id: /\d+/ }
 
       # Endpoint for getting all repositories.
       #
@@ -57,10 +55,10 @@ class Travis::Api::App
       # ### Response
       #
       # json(:repository)
-      get '/:id' do
-        prefer_follower do
-          respond_with service(:find_repo, params)
-        end
+      get Mustermann.new('/:id', capture: { id: /\d+/ }) do
+          prefer_follower do
+            respond_with service(:find_repo, params), type: :repository
+          end
       end
 
       # Retrieves repositories for a given owner.
@@ -73,6 +71,7 @@ class Travis::Api::App
       # Get settings for a given repository
       #
       get '/:id/settings', scope: :private do
+        auth_for_repo(params['id'], 'repository_settings_read') unless Travis.config.legacy_roles
         settings = service(:find_repo_settings, params).run
         if settings
           respond_with({ settings: settings.simple_attributes }, version: :v2)
@@ -84,6 +83,7 @@ class Travis::Api::App
       patch '/:id/settings', scope: :private do
         payload = JSON.parse request.body.read
 
+        auth_for_repo(params['id'], 'repository_settings_update') unless Travis.config.legacy_roles
         if payload['settings'].blank? || !payload['settings'].is_a?(Hash)
           halt 422, { "error" => "Settings must be passed with a request" }
         end
@@ -115,10 +115,14 @@ class Travis::Api::App
       #
       # json(:repository_key)
       get '/:id/key' do
+        auth_for_repo(params['id'], 'repository_settings_read') unless Travis.config.legacy_roles
         respond_with service(:find_repo_key, params), version: :v2
+        respond_with service(:find_repo_key, params), type: :ssl_key, version: :v2
       end
 
       post '/:id/key' do
+
+        auth_for_repo(params['id'], 'repository_settings_create') unless Travis.config.legacy_roles
         service = service(:regenerate_repo_key, params)
         disallow_migrating!(service.repo)
         respond_with service, version: :v2
@@ -137,11 +141,14 @@ class Travis::Api::App
 
       # List caches for a given repo. Can be filtered with `branch` and `match` query parameter.
       get '/:repository_id/caches', scope: :private do
+        auth_for_repo(params['repository_id'], 'repository_cache_view') unless Travis.config.legacy_roles
         respond_with service(:find_caches, params), type: :caches, version: :v2
       end
 
       # Delete caches for a given repo. Can be filtered with `branch` and `match` query parameter.
       delete '/:repository_id/caches', scope: :private do
+
+        auth_for_repo(params['repository_id'], 'repository_cache_delete') unless Travis.config.legacy_roles
         respond_with service(:delete_caches, params), type: :caches, version: :v2
       end
 
@@ -152,7 +159,7 @@ class Travis::Api::App
       # json(:repository)
       get '/:owner_name/:name' do
         prefer_follower do
-          respond_with service(:find_repo, params), type_hint: Repository
+          respond_with service(:find_repo, params), type_hint: Repository, type: :repository
         end
       end
 
@@ -165,7 +172,7 @@ class Travis::Api::App
         # `name` is unused
         # name = params[:branches] ? :find_branches : :find_builds
         params['ids'] = params['ids'].split(',') if params['ids'].respond_to?(:split)
-        respond_with service(:find_builds, params)
+        respond_with service(:find_builds, params), type: :builds
       end
 
       # Get a build with the given id in the repository with the given name.
@@ -174,7 +181,7 @@ class Travis::Api::App
       #
       # json(:build)
       get '/:owner_name/:name/builds/:id' do
-        respond_with service(:find_build, params)
+        respond_with service(:find_build, params), type: :build
       end
 
       # Get the public key for a given repository.
@@ -187,10 +194,19 @@ class Travis::Api::App
       #
       # json(:repository_key)
       get '/:owner_name/:name/key' do
-        respond_with service(:find_repo_key, params), version: :v2
+        repo = service(:find_repo, params).run
+        halt 404 unless repo
+
+        auth_for_repo(repo&.id, 'repository_settings_read') unless Travis.config.legacy_roles
+        respond_with service(:find_repo_key, params), type: :ssl_key, version: :v2
       end
 
       post '/:owner_name/:name/key' do
+        repo = service(:find_repo, params).run
+        halt 404 unless repo
+
+
+        auth_for_repo(repo&.id, 'repository_settings_create') unless Travis.config.legacy_roles
         service = service(:regenerate_repo_key, params)
         disallow_migrating!(service.repo)
         respond_with service, version: :v2
@@ -209,11 +225,15 @@ class Travis::Api::App
 
       # List caches for a given repo. Can be filtered with `branch` and `match` query parameter.
       get '/:owner_name/:name/caches', scope: :private do
+        repo = service(:find_repo, params).run
+        auth_for_repo(repo&.id, 'repository_cache_view') unless Travis.config.legacy_roles
         respond_with service(:find_caches, params), type: :caches, version: :v2
       end
 
       # Delete caches for a given repo. Can be filtered with `branch` and `match` query parameter.
       delete '/:owner_name/:name/caches', scope: :private do
+        repo = service(:find_repo, params).run
+        auth_for_repo(repo&.id, 'repository_cache_delete') unless Travis.config.legacy_roles
         respond_with service(:delete_caches, params), type: :caches, version: :v2
       end
     end

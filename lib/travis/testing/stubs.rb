@@ -171,9 +171,11 @@ module Travis
         test = Stubs.stub 'test', attributes.reverse_merge(
           id: 1,
           owner: stub_user,
+          owner_type: 'User',
           repository_id: 1,
           repository: repository,
           source_id: 1,
+          source_type: 'Build',
           stage_id: 1,
           request_id: 1,
           commit_id: commit.id,
@@ -263,12 +265,14 @@ module Travis
           syncing?: false,
           is_syncing: false,
           synced_at: Time.now.utc - 3600,
-          tokens: [stub('token', token: 'token')],
+          tokens: [double('token', token: 'token')],
           github_scopes: Travis.config.oauth2.scopes.to_s.split(','),
           created_at: Time.now.utc - 7200,
           first_logged_in_at: Time.now.utc - 5400,
           subscribed?: false,
-          education: false
+          education: false,
+          github?: true,
+          vcs_type: 'GithubUser'
         )
       end
 
@@ -324,6 +328,8 @@ module Travis
       def stub_job(attributes = {})
         Stubs.stub 'job', attributes.reverse_merge(
           repository: stub_repository,
+          owner_type: 'User',
+          source_type: 'Build',
           id: '42.1',
           enqueue: true
         )

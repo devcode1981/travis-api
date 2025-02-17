@@ -25,11 +25,15 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
                    }
   let(:parsed_body) { JSON.load(body) }
 
+  let(:authorization) { { 'permissions' => ['repository_state_update', 'repository_build_create', 'repository_settings_create', 'repository_settings_update', 'repository_cache_view', 'repository_cache_delete', 'repository_settings_delete', 'repository_log_view', 'repository_log_delete', 'repository_build_cancel', 'repository_build_debug', 'repository_build_restart', 'repository_settings_read', 'repository_scans_view'] } }
+
+  before { stub_request(:get, %r((.+)/permissions/repo/(.+))).to_return(status: 200, body: JSON.generate(authorization)) }
+
   before do
     # TODO should this go into the scenario? is it ok to keep it here?
-    job.update_attributes!(stage: stage)
-    job2.update_attributes!(config: config, stage: stage)
-    # for some reason update_attributes! doesn't update updated_at
+    job.update!(stage: stage, source_id: build.id, source_type: 'Build' , owner: repo.owner)
+    job2.update!(config: config, stage: stage)
+    # for some reason update! doesn't update updated_at
     # and it doesn't play well with out triggers (as triggers will update
     # updated_at and instance variable in tests will have a different value)
     job.reload
@@ -37,6 +41,8 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
   end
 
   describe "fetching job on a public repository, no pull access" do
+
+    let(:authorization) { { 'permissions' => ['repository_settings_read', 'repository_log_view'] } }
     before     { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: false) }
     before     { get("/v3/job/#{job.id}")     }
     example    { expect(last_response).to be_ok }
@@ -49,7 +55,9 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
         "cancel"              => false,
         "restart"             => false,
         "debug"               => false,
-        "delete_log"          => false },
+        "delete_log"          => false,
+        "view_log"            => true,
+        "prioritize"          => false },
       "id"                    => job.id,
       "allow_failure"         => job.allow_failure,
       "number"                => job.number,
@@ -59,6 +67,9 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
       "created_at"            => json_format_time_with_ms(job.created_at),
       "updated_at"            => json_format_time_with_ms(job.updated_at),
       "private"               => false,
+      "restarted_at"          => nil,
+      "restarted_by"          => nil,
+      "vm_size"               => nil,
       "build"                 => {
         "@type"               => "build",
         "@href"               => "/v3/build/#{build.id}",
@@ -72,6 +83,7 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
         "pull_request_number" => build.pull_request_number,
         "pull_request_title"  => build.pull_request_title,
         "private"             => false,
+        "priority"            => false,
         "started_at"          => "2010-11-12T12:00:00Z",
         "finished_at"         => "2010-11-12T12:00:10Z"},
       "stage"                 => {
@@ -105,7 +117,11 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
         "@href"               => "/v3/#{owner_href}/#{owner.id}",
         "@representation"     => "minimal",
         "id"                  => owner.id,
-        "login"               => owner.login}
+        "login"               => owner.login,
+        "name"                => owner.name,
+        "vcs_type"            => owner.vcs_type,
+        "ro_mode"             => false
+      }
     })}
   end
 
@@ -133,7 +149,7 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
   end
 
   describe "fetching job on private repository, private API, with a log.token" do
-    let(:log_token) { Travis::API::V3::LogToken.create(job).to_s }
+    let(:log_token) { Travis::API::V3::LogToken.create(job, owner.id).to_s }
     before        { repo.update_attribute(:private, true)                   }
     before        { get("/v3/job/#{job.id}?log.token=#{log_token}", {}, {}) }
     after         { repo.update_attribute(:private, false)                  }
@@ -143,10 +159,13 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
 
   describe "fetching job on private repository, private API, authenticated as user with access" do
     let(:token)   { Travis::Api::App::AccessToken.create(user: repo.owner, app_id: 1) }
-    let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}"                        }}
+    let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}", 'CONTENT_TYPE' => 'application/json' }}
     before        { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: true) }
     before        { repo.update_attribute(:private, true)                             }
-    before        { Travis::API::V3::Permissions::Job.any_instance.stubs(:delete_log?).returns(true) }
+    before        { allow_any_instance_of(Travis::API::V3::Permissions::Job).to receive(:delete_log?).and_return(true) }
+    before        { allow_any_instance_of(Travis::API::V3::Permissions::Job).to receive(:prioritize?).and_return(true) }
+
+    let(:authorization) { { 'permissions' => ['repository_settings_read', 'repository_log_view', 'repository_build_cancel', 'repository_build_restart'] } }
     before        { get("/v3/job/#{job.id}", {}, headers)                             }
     after         { repo.update_attribute(:private, false)                            }
     example       { expect(last_response).to be_ok                                    }
@@ -159,7 +178,9 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
         "cancel"              => true,
         "restart"             => true,
         "debug"               => false,
-        "delete_log"          => true },
+        "delete_log"          => true,
+        "view_log"            => true,
+        "prioritize"          => true },
       "id"                    => job.id,
       "allow_failure"         => job.allow_failure,
       "number"                => job.number,
@@ -169,6 +190,9 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
       "created_at"            => json_format_time_with_ms(job.created_at),
       "updated_at"            => json_format_time_with_ms(job.updated_at),
       "private"               => false,
+      "restarted_at"          => nil,
+      "restarted_by"          => nil,
+      "vm_size"               => nil,
       "build"                 => {
         "@type"               => "build",
         "@href"               => "/v3/build/#{build.id}",
@@ -182,6 +206,7 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
         "pull_request_number" => build.pull_request_number,
         "pull_request_title"  => build.pull_request_title,
         "private"             => false,
+        "priority"            => false,
         "started_at"          => "2010-11-12T12:00:00Z",
         "finished_at"         => "2010-11-12T12:00:10Z"},
       "stage"                 => {
@@ -215,11 +240,16 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
         "@href"               => "/v3/#{owner_href}/#{owner.id}",
         "@representation"     => "minimal",
         "id"                  => owner.id,
-        "login"               => owner.login}
+        "login"               => owner.login,
+        "name"                => owner.name,
+        "vcs_type"            => owner.vcs_type,
+        "ro_mode"             => true
+      }
     })}
   end
 
   describe "config is correctly obfuscated" do
+    let(:authorization) { { 'permissions' => ['repository_settings_read', 'repository_log_view'] } }
     before     { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: false) }
     before     { get("/v3/job/#{job2.id}?include=job.config")     }
     example    { expect(last_response).to be_ok }
@@ -232,7 +262,9 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
         "cancel"              => false,
         "restart"             => false,
         "debug"               => false,
-        "delete_log"          => false },
+        "delete_log"          => false,
+        "view_log"            => true,
+        "prioritize"          => false },
       "id"                    => job2.id,
       "allow_failure"         => job2.allow_failure,
       "number"                => job2.number,
@@ -242,6 +274,9 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
       "created_at"            => json_format_time_with_ms(job2.created_at),
       "updated_at"            => json_format_time_with_ms(job2.updated_at),
       "private"               => false,
+      "restarted_at"          => nil,
+      "restarted_by"          => nil,
+      "vm_size"               => nil,
       "build"                 => {
         "@type"               => "build",
         "@href"               => "/v3/build/#{build.id}",
@@ -255,6 +290,7 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
         "pull_request_number" => build.pull_request_number,
         "pull_request_title"  => build.pull_request_title,
         "private"             => false,
+        "priority"            => false,
         "started_at"          => "2010-11-12T12:00:00Z",
         "finished_at"         => "2010-11-12T12:00:10Z"},
       "stage"                 => {
@@ -288,7 +324,11 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
         "@href"               => "/v3/#{owner_href}/#{owner.id}",
         "@representation"     => "minimal",
         "id"                  => owner.id,
-        "login"               => owner.login},
+        "login"               => owner.login,
+        "name"                => owner.name,
+        "vcs_type"            => owner.vcs_type,
+        "ro_mode"             => false
+      },
       "config"                => {
         "language" => "shell",
         "addons" => { "mariadb" => "10.0" },
@@ -304,14 +344,14 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
 
   describe 'including log_complete on hosted' do
     before do
-      stub_request(:get, "http://travis-logs-notset.example.com:1234/logs/#{job.id}?by=job_id&source=api").
+      stub_request(:get, "#{Travis.config.logs_api.url}/logs/#{job.id}?by=job_id&source=api").
          with(  headers: {
           'Accept'=>'*/*',
           'Accept-Encoding'=>'gzip;q=1.0,deflate;q=0.6,identity;q=0.3',
           'Authorization'=>'token notset',
           'Connection'=>'keep-alive',
           'Keep-Alive'=>'30',
-          'User-Agent'=>'Faraday v0.15.3'
+          'User-Agent'=>'Faraday v2.7.10'
            }).
          to_return(status: 200, body: "{}", headers: {})
     end
@@ -326,14 +366,14 @@ describe Travis::API::V3::Services::Job::Find, set_app: true do
 
   describe 'including log_complete on enterprise' do
     before do
-      stub_request(:get, "http://travis-logs-notset.example.com:1234/logs/#{job2.id}?by=job_id&source=api").
+      stub_request(:get, "#{Travis.config.logs_api.url}/logs/#{job2.id}?by=job_id&source=api").
          with(  headers: {
           'Accept'=>'*/*',
           'Accept-Encoding'=>'gzip;q=1.0,deflate;q=0.6,identity;q=0.3',
           'Authorization'=>'token notset',
           'Connection'=>'keep-alive',
           'Keep-Alive'=>'30',
-          'User-Agent'=>'Faraday v0.15.3'
+          'User-Agent'=>'Faraday v2.7.10'
            }).
          to_return(status: 200, body: "{}", headers: {})
 

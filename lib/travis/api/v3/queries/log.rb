@@ -8,6 +8,7 @@ module Travis::API::V3
       @job = job
       remote_log = Travis::RemoteLog::Remote.new(platform: platform).find_by_job_id(platform_job_id)
       raise EntityMissing, 'log not found'.freeze if remote_log.nil?
+
       log = Travis::API::V3::Models::Log.new(remote_log: remote_log, job: job)
       # if the log has been archived, go to s3
       if log.archived?
@@ -46,7 +47,8 @@ module Travis::API::V3
     end
 
     def bucket_name
-      hostname('archive')
+      platform_prefix = "#{platform}_" unless platform == :default
+      config["#{platform_prefix}#{main_type}_options".to_sym][:s3][:bucket_name] || hostname('archive')
     end
 
     def hostname(name)

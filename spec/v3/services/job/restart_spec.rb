@@ -5,15 +5,30 @@ describe Travis::API::V3::Services::Job::Restart, set_app: true do
   let(:job)         { build.jobs.first }
   let(:payload)     { { 'id'=> "#{job.id}", 'user_id' => 1 } }
 
+  let(:authorization) { { 'permissions' => ['repository_state_update', 'repository_build_create', 'repository_settings_create', 'repository_settings_update', 'repository_cache_view', 'repository_cache_delete', 'repository_settings_delete', 'repository_log_view', 'repository_log_delete', 'repository_build_cancel', 'repository_build_debug', 'repository_build_restart', 'repository_settings_read', 'repository_scans_view'] } }
+
+  before { stub_request(:get, %r((.+)/permissions/repo/(.+))).to_return(status: 200, body: JSON.generate(authorization)) }
+
   before do
-    Travis::Features.stubs(:owner_active?).returns(true)
-    Travis::Features.stubs(:owner_active?).with(:enqueue_to_hub, repo.owner).returns(false)
+    job.update(state: :passed)
+    Travis.config.billing.url = 'http://localhost:9292/'
+    Travis.config.billing.auth_key = 'secret'
+
+    stub_request(:post, /http:\/\/localhost:9292\/(users|organizations)\/(.+)\/authorize_build/).to_return(
+      body: MultiJson.dump(allowed: true, rejection_code: nil)
+    )
+
+    allow(Travis::Features).to receive(:owner_active?).and_return(true)
+    allow(Travis::Features).to receive(:owner_active?).with(:enqueue_to_hub, repo.owner).and_return(false)
+    allow(Travis::Features).to receive(:owner_active?).with(:read_only_disabled, repo.owner).and_return(true)
     @original_sidekiq = Sidekiq::Client
     Sidekiq.send(:remove_const, :Client) # to avoid a warning
     Sidekiq::Client = []
   end
 
   after do
+    Travis.config.billing.url = nil
+    Travis.config.billing.auth_key = nil
     Sidekiq.send(:remove_const, :Client) # to avoid a warning
     Sidekiq::Client = @original_sidekiq
   end
@@ -43,6 +58,8 @@ describe Travis::API::V3::Services::Job::Restart, set_app: true do
   end
 
   describe "existing repository, no push or pull access" do
+      
+      let(:authorization) { { 'permissions' => ['repository_settings_read'] } }
       let(:token)   { Travis::Api::App::AccessToken.create(user: repo.owner, app_id: 1) }
       let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}"                        }}
       before        { post("/v3/job/#{job.id}/cancel", {}, headers)                 }
@@ -59,6 +76,15 @@ describe Travis::API::V3::Services::Job::Restart, set_app: true do
         "permission",
         "cancel")
       }
+    end
+
+    describe "existing repository, repo owner ro_mode" do
+      let(:token)   { Travis::Api::App::AccessToken.create(user: repo.owner, app_id: 1) }
+      let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}"                        }}
+      before { allow(Travis::Features).to receive(:owner_active?).with(:read_only_disabled, repo.owner).and_return(false) }
+      before { post("/v3/job/#{job.id}/cancel", {}, headers) }
+
+      example { expect(last_response.status).to be == 404 }
     end
 
   describe "existing repo, repo owner is flagged abusive" do
@@ -117,7 +143,7 @@ describe Travis::API::V3::Services::Job::Restart, set_app: true do
     let(:headers) {{ 'HTTP_AUTHORIZATION' => "token #{token}"                                                 }}
     before do
       Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: true, push: true)
-      Travis::Features.stubs(:owner_active?).with(:enqueue_to_hub, repo.owner).returns(true)
+      allow(Travis::Features).to receive(:owner_active?).with(:enqueue_to_hub, repo.owner).and_return(true)
     end
 
     shared_examples 'clears debug_options' do
@@ -207,6 +233,58 @@ describe Travis::API::V3::Services::Job::Restart, set_app: true do
 
       example { expect(Sidekiq::Client.last['queue']).to be == 'hub'                }
       example { expect(Sidekiq::Client.last['class']).to be == 'Travis::Hub::Sidekiq::Worker' }
+    end
+
+    context 'billing authorization' do
+      before do
+        @old_host = Travis.config.host
+        Travis.config.host = 'travis-ci.com'
+      end
+
+      after do
+        Travis.config.host = @old_host
+      end
+
+      context 'billing service authorizes the job' do
+        before do
+          stub_request(:post, /http:\/\/localhost:9292\/(users|organizations)\/(.+)\/authorize_build/).to_return(
+            body: MultiJson.dump(allowed: true, rejection_code: :nil), status: 200
+          )
+        end
+
+        it 'restarts the job' do
+          post("/v3/job/#{job.id}/restart", params, headers)
+          expect(last_response.status).to eq(202)
+        end
+      end
+
+      context 'billing service returns 404 (user is not on a new plan)' do
+        before do
+          stub_request(:post, /http:\/\/localhost:9292\/(users|organizations)\/(.+)\/authorize_build/).to_return(
+            body: MultiJson.dump(error: 'Plan not found'), status: 404
+          )
+          Travis.config.host = 'travis-ci.com'
+        end
+
+        it 'restarts the job' do
+          post("/v3/job/#{job.id}/restart", params, headers)
+          expect(last_response.status).to eq(403)
+        end
+      end
+
+      context 'billing service rejects the job' do
+        before do
+          stub_request(:post, /http:\/\/localhost:9292\/(users|organizations)\/(.+)\/authorize_build/).to_return(
+            body: MultiJson.dump(allowed: false, rejection_code: :no_build_credits), status: 403
+          )
+          Travis.config.host = 'travis-ci.com'
+        end
+
+        it 'does not restart the job' do
+          post("/v3/job/#{job.id}/restart", params, headers)
+          expect(last_response.status).to eq(403)
+        end
+      end
     end
 
     describe "passed state" do
@@ -300,7 +378,7 @@ describe Travis::API::V3::Services::Job::Restart, set_app: true do
     before { Travis::API::V3::Models::Permission.create(repository: repo, user: repo.owner, pull: true) }
 
     describe "repo migrating" do
-      before { repo.update_attributes(migration_status: "migrating") }
+      before { repo.update(migration_status: "migrating") }
       before { post("/v3/job/#{job.id}/restart", {}, headers) }
 
       example { expect(last_response.status).to be == 403 }
@@ -312,7 +390,7 @@ describe Travis::API::V3::Services::Job::Restart, set_app: true do
     end
 
     describe "repo migrating" do
-      before { repo.update_attributes(migration_status: "migrated") }
+      before { repo.update(migration_status: "migrated") }
       before { post("/v3/job/#{job.id}/restart", {}, headers) }
 
       example { expect(last_response.status).to be == 403 }

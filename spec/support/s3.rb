@@ -1,4 +1,3 @@
-require 's3'
 
 module Support
   module S3
@@ -12,25 +11,32 @@ module Support
 
     class FakeService
       attr_reader :buckets
-      def initialize(bucket)
+      def initialize(bucket, objects)
         @buckets = [bucket]
-        @buckets.stubs(:find).returns(bucket)
+        @objects = FakeBucket.new(objects)
+      end
+
+      def list_objects(params = {})
+        prefix = params[:prefix] || ""
+        FakeBucket.new(@objects.contents.select { |o| o.key.start_with? prefix })
       end
     end
 
     class FakeBucket
+      attr_reader :contents
       def initialize(objects)
-        @objects = Array(objects)
+        @contents = objects
       end
 
-      def objects(params = {})
+      def list_objects(params = {})
         params.each_key { |key| raise "cannot fake #{key}" unless key == :prefix }
         prefix = params[:prefix] || ""
-        @objects.select { |o| o.key.start_with? prefix }
+        FakeBucket.new(@contents.select { |o| o.key.start_with? prefix })
       end
 
+
       def add(key, options = {})
-        @objects << FakeObject.new(key, options)
+        contents << FakeObject.new(key, options)
       end
 
       alias_method :<<, :add
@@ -39,8 +45,12 @@ module Support
     extend ActiveSupport::Concern
 
     included do
-      before(:each)    { ::S3::Service.stubs(:new).returns(s3_service) }
-      let(:s3_service) { FakeService.new(s3_bucket) }
+      before(:each)    { allow(Aws::S3::Client).to receive(:new).and_return(s3_service) }
+      let(:s3_service) {
+        service = FakeService.new(s3_bucket, s3_objects)
+        allow(service.buckets).to receive(:find).and_return(s3_bucket)
+        service
+      }
       let(:s3_bucket)  { FakeBucket.new(s3_objects) }
       let(:s3_objects) { [] }
     end
